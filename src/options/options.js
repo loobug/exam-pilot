@@ -853,33 +853,6 @@ document.addEventListener('DOMContentLoaded', () => {
   $('kbQuery').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); kbTest(); }
   });
-  async function refreshKbWarm() {
-    const el = $('kbWarmState');
-    if (!el) return;
-    try {
-      const r = await chrome.runtime.sendMessage({ type: 'kb-warm-status' });
-      const st = (r && r.state) || {};
-      if (!st.at) {
-        el.className = 'kbwarm';
-        el.textContent = '索引状态：尚未预热（后台启动时会自动预热，或点「立即预热」）';
-        return;
-      }
-      if (st.ok && st.entries > 0) {
-        const ago = Math.max(0, Math.round((Date.now() - st.at) / 1000));
-        el.className = 'kbwarm ok';
-        el.textContent = '索引状态：已预热 · ' + st.entries + ' 条 · 用时 ' + st.ms + 'ms · ' + ago + ' 秒前';
-      } else if (st.ok) {
-        el.className = 'kbwarm';
-        el.textContent = '索引状态：题库为空，导入后会自动预热';
-      } else {
-        el.className = 'kbwarm bad';
-        el.textContent = '索引状态：预热失败 — ' + (st.error || '未知原因');
-      }
-    } catch (e) {
-      el.className = 'kbwarm bad';
-      el.textContent = '索引状态：读取失败（' + (e && e.message || e) + '）';
-    }
-  }
 
   async function doWarm() {
     const el = $('kbWarmState');
@@ -932,6 +905,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function notifyKbChanged() {
   try { await chrome.runtime.sendMessage({ type: 'kbChanged' }); } catch (e) { }
+}
+
+async function refreshKbWarm() {
+  const el = $('kbWarmState');
+  if (!el) return;
+  try {
+    const r = await chrome.runtime.sendMessage({ type: 'kb-warm-status' });
+    const st = (r && r.state) || {};
+    if (!st.at) {
+      el.className = 'kbwarm';
+      el.textContent = '索引状态：尚未预热（后台启动时会自动预热，或点「立即预热」）';
+      return;
+    }
+    if (st.ok && st.entries > 0) {
+      const ago = Math.max(0, Math.round((Date.now() - st.at) / 1000));
+      el.className = 'kbwarm ok';
+      el.textContent = '索引状态：已预热 · ' + st.entries + ' 条 · 用时 ' + st.ms + 'ms · ' + ago + ' 秒前';
+    } else if (st.ok) {
+      el.className = 'kbwarm';
+      el.textContent = '索引状态：题库为空，导入后会自动预热';
+    } else {
+      el.className = 'kbwarm bad';
+      el.textContent = '索引状态：预热失败 — ' + (st.error || '未知原因');
+    }
+  } catch (e) {
+    el.className = 'kbwarm bad';
+    el.textContent = '索引状态：读取失败（' + (e && e.message || e) + '）';
+  }
 }
 
 /* ================= 知识库 ================= */
