@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>六选项多选题测试页</title>
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1f2430;
+    font:15px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  .app{max-width:860px;margin:0 auto;padding:26px 18px 60px}
+  .card{background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:24px 26px}
+  .qmeta{display:flex;gap:10px;align-items:center;font-size:13px;color:#6b7688;margin-bottom:12px}
+  .badge{font-size:12px;padding:2px 9px;border-radius:6px;background:#f3e8ff;color:#7c3aed}
+  .qtext{font-size:19px;font-weight:700;margin:0 0 18px}
+  .options{display:flex;flex-direction:column;gap:9px}
+  .option{display:flex;align-items:flex-start;gap:12px;text-align:left;background:#fff;
+    border:1px solid #e6eaf0;border-radius:10px;padding:10px 14px;cursor:pointer;font:inherit;color:inherit}
+  .option:hover{border-color:#b9cbe4;background:#f8fbff}
+  .option.on{border-color:#0b5fb0;background:#eef4fc}
+  .letter{flex:none;width:24px;height:24px;border-radius:50%;border:1.5px solid #c9d3e0;
+    display:flex;align-items:center;justify-content:center;font-size:12px}
+  .option.on .letter{background:#0b5fb0;border-color:#0b5fb0;color:#fff}
+  .states{margin-top:16px;font-size:13px;color:#6b7688}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="card" id="qcard"></div>
+  <div class="states" id="states">已选：无</div>
+</div>
+<script>
+  const LETTERS = 'ABCDEFGH';
+  const Q = {
+    type: 'multi',
+    badge: '多选题',
+    cat: '五项要求',
+    num: '第 1 / 1 题',
+    hint: '请选择所有正确项',
+    stem: '1. “五项要求”包括以下哪些内容？',
+    options: [
+      '接到服务要联系',
+      '服务之前要准备',
+      '出发之前要检查',
+      '服务过程要细致',
+      '服务完成要确认',
+      '服务结束要回访'
+    ]
+  };
+
+  let sel = [];
+
+  // 与真实考试页一致的实现：每次点选都整体重绘卡片（验证元素引用失效的兼容性）
+  function render() {
+    const qcard = document.getElementById('qcard');
+    qcard.innerHTML =
+      '<div class="qmeta">' +
+        '<span class="badge multi">' + Q.badge + '</span>' +
+        '<span class="qcat">' + Q.cat + '</span>' +
+        '<span>' + Q.num + '</span>' +
+        '<span class="hint">' + Q.hint + '</span>' +
+      '</div>' +
+      '<h2 class="qtext">' + Q.stem + '</h2>' +
+      '<div class="options">' +
+        Q.options.map((opt, i) =>
+          '<button type="button" class="option ' + (sel.includes(i) ? 'on' : '') + '" data-i="' + i + '">' +
+            '<span class="letter">' + LETTERS[i] + '</span>' +
+            '<span class="otext">' + opt + '</span>' +
+          '</button>'
+        ).join('') +
+      '</div>';
+
+    qcard.querySelectorAll('.option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.getAttribute('data-i'));
+        const at = sel.indexOf(i);
+        if (at >= 0) sel.splice(at, 1); else sel.push(i);
+        render();               // 整卡重绘
+        document.getElementById('states').textContent =
+          '已选：' + (sel.sort((a, b) => a - b).map(i => LETTERS[i]).join('') || '无');
+      });
+    });
+  }
+
+  render();
+</script>
+</body>
+</html>

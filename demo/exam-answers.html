@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>练习模式 · 已显示答案（测试页）</title>
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1f2430;
+    font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  .page{max-width:840px;margin:0 auto;padding:32px 20px 80px}
+  h1{font-size:21px;margin:0 0 6px}
+  .meta{color:#6b7688;font-size:13px;margin-bottom:20px}
+  .q{background:#fff;border:1px solid #e3e8f0;border-radius:12px;padding:16px 18px;margin-bottom:14px}
+  .stem{font-weight:600;margin-bottom:10px}
+  .tag{display:inline-block;font-size:12px;font-weight:400;color:#2f6fed;background:#eaf1ff;
+    border-radius:6px;padding:1px 7px;margin-right:8px}
+  label.opt{display:flex;gap:9px;align-items:flex-start;padding:6px 8px;border-radius:8px}
+  label.opt.correct{background:#e9f8ee;outline:1px solid #9ad8b0}
+  label.opt.correct span::after{content:" ✓";color:#1a7f37}
+  .ansline{margin-top:8px;font-size:13px;color:#1a7f37;background:#eef9f1;
+    border:1px solid #b7e4c7;border-radius:8px;padding:6px 10px}
+  .check::after{content:" ✓";color:#1a7f37;font-weight:700}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>练习模式（答案已可见）</h1>
+  <div class="meta">用于验证「页面已有答案」识别：文本标注 / 选项高亮两种形式</div>
+
+  <div class="q" id="p1">
+    <div class="stem"><span class="tag">单选</span>1. 下列哪个不是面向对象的基本特征？</div>
+    <label class="opt"><input type="radio" name="p1" value="A" /><span>A. 封装</span></label>
+    <label class="opt"><input type="radio" name="p1" value="B" /><span>B. 继承</span></label>
+    <label class="opt"><input type="radio" name="p1" value="C" /><span>C. 编译</span></label>
+    <label class="opt"><input type="radio" name="p1" value="D" /><span>D. 多态</span></label>
+    <div class="ansline">正确答案：C</div>
+  </div>
+
+  <div class="q" id="p2">
+    <div class="stem"><span class="tag">多选</span>2. 下列属于 HTTP 请求方法的是（ ）。</div>
+    <label class="opt correct"><input type="checkbox" name="p2" value="A" /><span>A. GET</span></label>
+    <label class="opt"><input type="checkbox" name="p2" value="B" /><span>B. SEND</span></label>
+    <label class="opt correct"><input type="checkbox" name="p2" value="C" /><span>C. POST</span></label>
+    <label class="opt"><input type="checkbox" name="p2" value="D" /><span>D. FETCH</span></label>
+  </div>
+
+  <div class="q" id="p3">
+    <div class="stem"><span class="tag">判断</span>3. 二分查找要求数据必须有序。（ ）</div>
+    <label class="opt"><input type="radio" name="p3" value="A" /><span class="check">A. 对</span></label>
+    <label class="opt"><input type="radio" name="p3" value="B" /><span>B. 错</span></label>
+    <div class="ansline">答案：对</div>
+  </div>
+
+  <div class="q" id="p4">
+    <div class="stem"><span class="tag">单选</span>4. 时间复杂度 O(n log n) 的排序算法是（ ）。</div>
+    <label class="opt"><input type="radio" name="p4" value="A" /><span>A. 冒泡排序</span></label>
+    <label class="opt"><input type="radio" name="p4" value="B" /><span>B. 归并排序</span></label>
+    <label class="opt"><input type="radio" name="p4" value="C" /><span>C. 插入排序</span></label>
+    <label class="opt"><input type="radio" name="p4" value="D" /><span>D. 选择排序</span></label>
+    <div class="ansline">参考答案：B</div>
+  </div>
+</div>
+</body>
+</html>

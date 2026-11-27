@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>判断题题库验证</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#f6f7fb;font:15px/1.7 -apple-system,"Microsoft YaHei",system-ui,sans-serif;color:#222}
+  .card{max-width:760px;margin:30px auto;background:#fff;border:1px solid #e6eaf0;border-radius:12px;padding:24px}
+  .qtext{font-weight:700;font-size:17px;margin:0 0 14px;white-space:pre-line}
+  .option{display:flex;gap:10px;align-items:center;padding:12px 14px;border:1px solid #e2e7ef;border-radius:9px;margin:8px 0;cursor:pointer}
+  .option.on{background:#e8f1ff;border-color:#2f6feb}
+  .ol{font-weight:700;color:#2f6feb;min-width:22px}
+</style>
+</head>
+<body>
+<div class="card"><div class="type-label">判断题</div>
+  <div class="qtext qstem" id="stem">客户满意是服务人员最终价值体现，也是我们持续追求的目标。</div>
+  <label class="option" data-label="A"><input type="radio" name="q" value="A" /><span class="ol">A</span><span class="otext">错误</span></label>
+  <label class="option" data-label="B"><input type="radio" name="q" value="B" /><span class="ol">B</span><span class="otext">正确</span></label>
+</div>
+<script>
+  window.__READY = true;
+  // 判断题原生 radio + 明确题型，方便验证题库映射
+  const s = document.getElementById("stem");
+  s.className = "qtext qstem judge";
+  s.setAttribute("data-kind", "judge");
+</script>
+</body>
+</html>

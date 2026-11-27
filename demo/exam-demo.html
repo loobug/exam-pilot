@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>期末综合练习 · 测试页</title>
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1f2430;
+    font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  .page{max-width:840px;margin:0 auto;padding:32px 20px 120px}
+  h1{font-size:22px;margin:0 0 6px}
+  .meta{color:#6b7688;font-size:13px;margin-bottom:22px}
+  .q{background:#fff;border:1px solid #e3e8f0;border-radius:12px;padding:16px 18px;margin-bottom:14px;
+    box-shadow:0 1px 2px rgba(20,30,50,.04)}
+  .stem{font-weight:600;margin-bottom:10px}
+  .tag{display:inline-block;font-size:12px;font-weight:400;color:#2f6fed;background:#eaf1ff;
+    border-radius:6px;padding:1px 7px;margin-right:8px}
+  label.opt{display:flex;gap:9px;align-items:flex-start;padding:6px 8px;border-radius:8px;cursor:pointer}
+  label.opt:hover{background:#f3f6fc}
+  label.opt input{margin-top:6px}
+  .blanks input{width:170px;padding:6px 9px;border:1px solid #ccd4e0;border-radius:7px;margin:4px 6px 4px 0;font:inherit}
+  textarea{width:100%;min-height:96px;padding:9px 11px;border:1px solid #ccd4e0;border-radius:8px;font:inherit;resize:vertical}
+  .fake .opt2{display:block;padding:6px 9px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+  .fake .opt2:hover{background:#f3f6fc;border-color:#dde5f2}
+  .fake .opt2.on{background:#e8f0ff;border-color:#a9c4ff;font-weight:600}
+  .foot{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #e3e8f0;padding:12px 20px;
+    text-align:center;color:#6b7688;font-size:13px}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>期末综合练习（插件测试页）</h1>
+  <div class="meta">共 6 题 · 覆盖单选 / 多选 / 判断 / 填空 / 简答 / 点击型选项</div>
+
+  <div class="q" id="q1">
+    <div class="stem"><span class="tag">单选</span>1. 一个物体在水平面上做匀速直线运动，则它受到的合外力（ ）。</div>
+    <label class="opt"><input type="radio" name="q1" value="A" /><span>A. 方向与速度相同</span></label>
+    <label class="opt"><input type="radio" name="q1" value="B" /><span>B. 方向与速度相反</span></label>
+    <label class="opt"><input type="radio" name="q1" value="C" /><span>C. 等于零</span></label>
+    <label class="opt"><input type="radio" name="q1" value="D" /><span>D. 大小恒定但方向不断改变</span></label>
+  </div>
+
+  <div class="q" id="q2">
+    <div class="stem"><span class="tag">多选</span>2. 下列属于操作系统的是（ ）。</div>
+    <label class="opt"><input type="checkbox" name="q2" value="A" /><span>A. Linux</span></label>
+    <label class="opt"><input type="checkbox" name="q2" value="B" /><span>B. MySQL</span></label>
+    <label class="opt"><input type="checkbox" name="q2" value="C" /><span>C. Windows Server</span></label>
+    <label class="opt"><input type="checkbox" name="q2" value="D" /><span>D. Nginx</span></label>
+  </div>
+
+  <div class="q" id="q3">
+    <div class="stem"><span class="tag">判断</span>3. TCP 协议在网络层工作，提供无连接的数据报服务。（ ）</div>
+    <label class="opt"><input type="radio" name="q3" value="A" /><span>A. 对</span></label>
+    <label class="opt"><input type="radio" name="q3" value="B" /><span>B. 错</span></label>
+  </div>
+
+  <div class="q" id="q4">
+    <div class="stem"><span class="tag">填空</span>4. 光在真空中的传播速度约为 <input type="text" name="q4a" placeholder="第一空" /> m/s；声音在 15℃ 空气中的传播速度约为 <input type="text" name="q4b" placeholder="第二空" /> m/s。</div>
+  </div>
+
+  <div class="q" id="q5">
+    <div class="stem"><span class="tag">简答</span>5. 简述 HTTPS 相比 HTTP 在安全性上的三点主要改进。</div>
+    <textarea name="q5" placeholder="在此作答"></textarea>
+  </div>
+
+  <div class="q fake" id="q6">
+    <div class="stem"><span class="tag">单选</span>6. 在关系数据库中，用于唯一标识一条记录的属性或属性组称为（ ）。</div>
+    <div class="opts">
+      <span class="opt2" data-v="A">A. 外键</span>
+      <span class="opt2" data-v="B">B. 主键</span>
+      <span class="opt2" data-v="C">C. 索引</span>
+      <span class="opt2" data-v="D">D. 视图</span>
+    </div>
+  </div>
+
+  <div class="foot">这是本地测试页，提交按钮未实现 · 用于验证插件识别与填涂</div>
+</div>
+<script>
+  // 点击型选项的选中效果（模拟真实考试系统的纯 DOM 选项）
+  document.querySelectorAll('#q6 .opt2').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('#q6 .opt2').forEach(x => x.classList.remove('on'));
+      el.classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+{
+  "manifest_version": 3,
+  "name": "考试辅助 · AI 解题助手",
+  "version": "1.0.53",
+  "description": "自动识别网页考试题目，先查本地知识库、再用 AI 推理作答，可一键填涂；答案标注「知识库 / AI」来源。",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "tabs",
+    "unlimitedStorage",
+    "alarms",
+    "offscreen",
+    "downloads"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "考试辅助 AI",
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "options_page": "src/options/options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content/util.js",
+        "src/content/extract.js",
+        "src/content/fill.js",
+        "src/content/overlay.js",
+        "src/content/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": false
+    }
+  ],
+  "commands": {
+    "toggle-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+Q"
+      },
+      "description": "打开/收起解题面板"
+    },
+    "solve-all": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "识别并解出本页全部题目"
+    },
+    "fill-all": {
+      "suggested_key": {
+        "default": "Alt+Shift+F"
+      },
+      "description": "把已有答案填入页面"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "vendor/*",
+        "icons/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

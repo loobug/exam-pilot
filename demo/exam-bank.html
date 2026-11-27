@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>题库随机打乱验证</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1f2430;font:15px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  .app{max-width:860px;margin:0 auto;padding:24px 18px 60px}
+  .q{background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:22px 24px}
+  .qmeta{display:flex;gap:10px;font-size:13px;color:#6b7688;margin-bottom:12px}
+  .badge{font-size:12px;padding:2px 9px;border-radius:6px;background:#f3e8ff;color:#7c3aed}
+  .qtext{font-size:18px;font-weight:700;margin:0 0 16px}
+  .opts{display:flex;flex-direction:column;gap:8px}
+  .option{display:flex;gap:12px;align-items:flex-start;text-align:left;background:#fff;
+    border:1px solid #e6eaf0;border-radius:10px;padding:9px 13px;cursor:pointer;font:inherit;color:inherit}
+  .option.on{border-color:#0b5fb0;background:#eef4fc}
+  .letter{flex:none;width:23px;height:23px;border-radius:50%;border:1.5px solid #c9d3e0;
+    display:flex;align-items:center;justify-content:center;font-size:12px}
+  .option.on .letter{background:#0b5fb0;border-color:#0b5fb0;color:#fff}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<script>
+  const LETTERS = 'ABCDEFGH';
+  const params = new URLSearchParams(location.search);
+  const idx = Number(params.get('i') || 0);
+  const seed = Number(params.get('seed') || 1);
+
+  /* 可复现的伪随机打乱 */
+  function shuffled(arr, s) {
+    const a = arr.slice();
+    let x = s * 9301 + 49297;
+    for (let i = a.length - 1; i > 0; i--) {
+      x = (x * 9301 + 49297) % 233280;
+      const j = Math.floor((x / 233280) * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  fetch('bank.json').then(r => r.json()).then(bank => {
+    const q = bank[idx];
+    if (!q) { document.getElementById('app').textContent = '没有这道题'; return; }
+
+    // 选项顺序按 seed 打乱（与题库顺序脱钩）
+    const opts = shuffled(q.options, seed + idx * 7);
+    const badgeText = q.type === 'multi' ? '多选题' : q.type === 'judge' ? '判断题' : '单选题';
+
+    window.__Q = {
+      no: q.no, stem: q.stem, type: q.type, seed,
+      pageOptions: opts.map((o, k) => ({ label: LETTERS[k], text: o.text, src: o.letter }))
+    };
+
+    let sel = [];
+    function render() {
+      const app = document.getElementById('app');
+      app.innerHTML =
+        '<div class="q">' +
+          '<div class="qmeta"><span class="badge ' + q.type + '">' + badgeText + '</span>' +
+            '<span class="qcat">' + (q.cat || '') + '</span>' +
+            '<span>第 ' + (idx + 1) + ' / ' + bank.length + ' 题</span></div>' +
+          '<div class="stem qtext">' + q.stem + '</div>' +
+          '<div class="opts">' +
+            opts.map((o, k) =>
+              '<button type="button" class="option ' + (sel.includes(k) ? 'on' : '') + '" data-i="' + k + '">' +
+                '<span class="letter">' + LETTERS[k] + '</span><span class="otext">' + o.text + '</span>' +
+              '</button>').join('') +
+          '</div>' +
+        '</div>';
+
+      app.querySelectorAll('.option').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const i = Number(btn.dataset.i);
+          if (q.type !== 'multi') sel = [i];
+          else {
+            const at = sel.indexOf(i);
+            if (at >= 0) sel.splice(at, 1); else sel.push(i);
+          }
+          render();
+        });
+      });
+    }
+    render();
+    window.__READY = true;
+  });
+</script>
+</body>
+</html>

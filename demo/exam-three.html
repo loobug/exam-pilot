@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>打乱选项后的知识库映射测试</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1f2430;font:15px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  .app{max-width:840px;margin:0 auto;padding:26px 18px 60px}
+  .q{background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:22px 24px}
+  .qmeta{display:flex;gap:10px;font-size:13px;color:#6b7688;margin-bottom:10px}
+  .badge{font-size:12px;padding:2px 9px;border-radius:6px;background:#f3e8ff;color:#7c3aed}
+  .stem{font-size:18px;font-weight:700;margin:0 0 16px}
+  .opts{display:flex;flex-direction:column;gap:8px}
+  .option{display:flex;gap:12px;align-items:flex-start;text-align:left;background:#fff;
+    border:1px solid #e6eaf0;border-radius:10px;padding:9px 13px;cursor:pointer;font:inherit;color:inherit}
+  .option.on{border-color:#0b5fb0;background:#eef4fc}
+  .letter{flex:none;width:23px;height:23px;border-radius:50%;border:1.5px solid #c9d3e0;
+    display:flex;align-items:center;justify-content:center;font-size:12px}
+  .option.on .letter{background:#0b5fb0;border-color:#0b5fb0;color:#fff}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<script>
+  const LETTERS = 'ABCDEFGH';
+  // 选项顺序与实际考试页一致（被系统打乱过）
+  const QS = [
+    {
+      type: 'judge', badge: '判断题', cat: '五项要求', num: '第 1 / 4 题', hint: '请判断正误',
+      stem: '出发时间应提前 1 小时根据约定时间和路程确定，确保比约定时间提前 5–10 分钟到达。',
+      options: ['正确', '错误']
+    },
+    {
+      type: 'multi', badge: '多选题', cat: '六大注意', num: '第 2 / 4 题', hint: '请选择所有正确项',
+      stem: '项目收尾阶段要重点关注哪些事项？',
+      options: ['项目转维', '用户培训', '资料移交', '售前移交']
+    },
+    {
+      type: 'multi', badge: '多选题', cat: '六大注意', num: '第 3 / 4 题', hint: '请选择所有正确项',
+      stem: '项目启动阶段要重点注意哪些事项？',
+      options: ['资源安排', '售前移交', '项目转维', '精准定级']
+    },
+    {
+      // 判断题：页面把「错误/正确」的顺序颠倒，题库答案是「正确」
+      type: 'judge', badge: '判断题', cat: '核心总纲', num: '第 4 / 4 题', hint: '请判断正误',
+      stem: '客户满意是服务人员最终价值体现，不满意的服务不会带来价值。',
+      options: ['错误', '正确']
+    }
+  ];
+
+  const idx = Math.max(0, Math.min(QS.length - 1, Number(new URLSearchParams(location.search).get('i') || 0)));
+  const Q = QS[idx];
+  let sel = [];
+
+  function render() {
+    const app = document.getElementById('app');
+    app.innerHTML =
+      '<div class="q">' +
+        '<div class="qmeta"><span class="badge ' + Q.type + '">' + Q.badge + '</span>' +
+          '<span class="qcat">' + Q.cat + '</span><span>' + Q.num + '</span>' +
+          '<span class="hint">' + Q.hint + '</span></div>' +
+        '<div class="stem">' + Q.stem + '</div>' +
+        '<div class="opts">' +
+          Q.options.map((opt, k) =>
+            '<button type="button" class="option ' + (sel.includes(k) ? 'on' : '') + '" data-i="' + k + '">' +
+              '<span class="letter">' + LETTERS[k] + '</span><span class="otext">' + opt + '</span>' +
+            '</button>').join('') +
+        '</div>' +
+      '</div>';
+
+    app.querySelectorAll('.option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.i);
+        if (Q.type === 'judge') sel = [i];
+        else {
+          const at = sel.indexOf(i);
+          if (at >= 0) sel.splice(at, 1); else sel.push(i);
+        }
+        render();
+      });
+    });
+  }
+
+  render();
+</script>
+</body>
+</html>

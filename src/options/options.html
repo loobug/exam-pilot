@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>考试辅助 · 设置</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;background:#0b0e14;color:#e6edf3;
+    font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:34px 18px 70px}
+  .wrap{max-width:780px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px}
+  .lead{color:#8b98a9;font-size:13px;margin:0 0 22px}
+  .card{background:#0f141c;border:1px solid #1f2733;border-radius:14px;padding:20px 20px 8px;margin-bottom:16px}
+  .card h2{font-size:14px;margin:0 0 14px;color:#c9d6e4;font-weight:600;letter-spacing:.3px}
+  .field{margin-bottom:14px}
+  label{display:block;font-size:12.5px;color:#9aa9bb;margin-bottom:5px}
+  label .req{color:#f0883e}
+  input[type=text],input[type=password],input[type=number],select,textarea{
+    width:100%;background:#0a0e15;border:1px solid #232d3b;border-radius:9px;color:#e6edf3;
+    padding:9px 11px;font:13px/1.5 inherit;outline:none;transition:.13s;font-family:inherit}
+  input:focus,select:focus,textarea:focus{border-color:#1f6feb;box-shadow:0 0 0 3px #1f6feb22}
+  textarea{min-height:82px;resize:vertical;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  .hint{font-size:11.5px;color:#6d7f95;margin-top:5px;line-height:1.5}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .switch{display:flex;align-items:flex-start;gap:9px;padding:9px 0}
+  .switch input{margin-top:3px;width:16px;height:16px;accent-color:#1f6feb}
+  .switch .lab{font-size:13px;color:#dbe6f2}
+  .switch .desc{font-size:11.5px;color:#6d7f95}
+  .pw{display:flex;gap:8px}
+  .pw input{flex:1}
+  button{appearance:none;border:1px solid #2b3644;background:#182130;color:#dbe6f2;border-radius:9px;
+    padding:9px 15px;font:13px inherit;cursor:pointer;transition:.13s;font-family:inherit}
+  button:hover{background:#222e3f;border-color:#3b4a5e;color:#fff}
+  button.primary{background:#1f6feb;border-color:#2b7bf5;color:#fff;font-weight:600}
+  button.primary:hover{background:#2b7bf5}
+  button.ghost{background:transparent}
+  .bar{display:flex;gap:10px;align-items:center;position:sticky;bottom:0;background:#0b0e14;padding:14px 0 4px}
+  .status{font-size:12.5px;margin-left:auto;text-align:right;max-width:52%}
+  .ok{color:#3fb950}.bad{color:#f85149}.warn{color:#d29922}
+  details{border-top:1px dashed #1f2733;padding-top:12px;margin-top:4px}
+  summary{cursor:pointer;font-size:12.5px;color:#8b98a9;outline:none;margin-bottom:10px}
+  summary:hover{color:#c9d6e4}
+  code{background:#131a24;border:1px solid #1f2733;border-radius:5px;padding:1px 5px;font-size:11.5px;color:#9ecbff}
+  .drop{border:1.5px dashed #2b3644;border-radius:12px;padding:20px;text-align:center;color:#8b98a9;
+    font-size:13px;cursor:pointer;transition:.15s;background:#0c1119;line-height:1.7}
+  .drop:hover,.drop.over{border-color:#1f6feb;color:#c9d6e4;background:#0f1620}
+  .drop b{color:#79b8ff}
+  .kblist{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+  .kbitem{display:flex;align-items:center;gap:10px;border:1px solid #1f2733;border-radius:9px;
+    padding:8px 10px;background:#0c1119;font-size:12.5px}
+  .kbitem .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#dbe6f2}
+  .kbitem .tagv{font-size:10.5px;padding:1px 6px;border-radius:5px;border:1px solid #2c3646;
+    color:#79b8ff;background:#0f1c2b;white-space:nowrap}
+  .kbitem .num{color:#6d7f95;font-size:11.5px;white-space:nowrap}
+  .kbitem button{padding:4px 9px;font-size:11.5px}
+  .kbmeta{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12px;color:#8b98a9}
+  .kbmeta span{flex:1}
+  .kbprog{position:relative;height:26px;border-radius:8px;background:#0c1119;border:1px solid #1f2733;
+    margin-top:10px;overflow:hidden}
+  .kbprog .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:#1f6feb44;transition:.2s}
+  .kbprog span{position:relative;display:block;text-align:center;line-height:24px;font-size:11.5px;color:#c9d6e4}
+  .kbresult{margin-top:10px;background:#0a0e15;border:1px solid #1f2733;border-radius:9px;padding:10px;
+    font-size:11.5px;color:#a8b7c8;max-height:280px;overflow:auto;white-space:pre-wrap;
+    font-family:ui-monospace,Consolas,monospace}
+  .kbwarm{margin:6px 0 2px;font-size:12px;color:#8b98a9}
+  .kbwarm.ok{color:#3fb950}
+  .kbwarm.bad{color:#f0883e}
+  .kbenrich{margin:12px 0 10px;padding:12px 14px;border:1px solid #2b3644;border-radius:10px;background:#131a24}
+  .kbenrich-head{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#dbe6f2}
+  .kbenrich-head #kbEnrichState{font-size:12px;color:#8b98a9}
+  .kbenrich-head #kbEnrichState.ok{color:#3fb950}
+  .kbenrich-head #kbEnrichState.warn{color:#d29922}
+  .kbenrich-desc{margin:6px 0 10px;font-size:11.5px;line-height:1.7;color:#7d8ea3}
+  .kbenrich-btns{display:flex;gap:8px;flex-wrap:wrap}
+  .kbbrowse{margin:12px 0 10px;padding:12px 14px;border:1px solid #2b3644;border-radius:10px;background:#131a24}
+  .kbbrowse-head{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#dbe6f2;margin-bottom:9px}
+  .kbbrowse-head #kbBrowseSum{font-size:12px;color:#8b98a9}
+  .kbbrowse-bar{display:flex;gap:8px;margin-bottom:10px}
+  .kbbrowse-bar input{flex:1;background:#0d131a;border:1px solid #22303f;border-radius:8px;color:#dbe6f2;padding:7px 10px;font:inherit;font-size:13px}
+  .kbbrowse-list{max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+  .kbrow{padding:8px 10px;border:1px solid #1e2836;border-radius:8px;background:#0f151d}
+  .kbrow-q{font-size:12.5px;color:#dbe6f2;line-height:1.5}
+  .kbrow-a{font-size:11.5px;color:#7d8ea3;margin-top:3px}
+  .kbrow-a b{color:#3fb950}
+  .kbrow-meta{font-size:11px;color:#5d6b7d;margin-top:2px}
+  .kbbrowse-pager{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:10px;font-size:12px;color:#8b98a9}
+  .kbbrowse-empty{font-size:12px;color:#6b7688;padding:14px 0;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>考试辅助 · 模型设置</h1>
+  <p class="lead">所有配置只保存在本机 <code>chrome.storage.local</code>，直接由你的浏览器发往你填的接口，不经过任何中转服务器。</p>
+
+  <div class="card">
+    <h2>接口</h2>
+
+    <div class="field">
+      <label>服务预设</label>
+      <select id="preset">
+        <option value="openai">OpenAI</option>
+        <option value="deepseek">DeepSeek</option>
+        <option value="moonshot">月之暗面 Kimi</option>
+        <option value="dashscope">阿里通义千问</option>
+        <option value="zhipu">智谱 GLM</option>
+        <option value="siliconflow">SiliconFlow</option>
+        <option value="ollama">本地 Ollama</option>
+        <option value="custom">自定义（OpenAI 兼容）</option>
+      </select>
+      <div class="hint">选择后会自动填好 Base URL 与模型名，密钥仍需自己填。</div>
+    </div>
+
+    <div class="field">
+      <label>Base URL <span class="req">*</span></label>
+      <input type="text" id="baseUrl" placeholder="https://api.openai.com/v1" spellcheck="false" />
+      <div class="hint">填到 <code>/v1</code> 即可，插件自动补 <code>/chat/completions</code>；也可直接填完整地址。</div>
+    </div>
+
+    <div class="field">
+      <label>API Key</label>
+      <div class="pw">
+        <input type="password" id="apiKey" placeholder="sk-..." spellcheck="false" autocomplete="off" />
+        <button class="ghost" id="toggleKey" type="button">显示</button>
+      </div>
+      <div class="hint" id="keyHint">本地 Ollama 之类的免密接口可以留空。</div>
+    </div>
+
+    <div class="grid2">
+      <div class="field">
+        <label>文本模型 <span class="req">*</span></label>
+        <input type="text" id="model" placeholder="gpt-4o-mini" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label>视觉模型（截图解题用，可空）</label>
+        <input type="text" id="visionModel" placeholder="gpt-4o" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label>图片题识别方式</label>
+        <select id="ocrEngine">
+          <option value="auto">自动（有视觉模型就用视觉，否则用本地）</option>
+          <option value="local">本地 OCR（离线，不调 API）</option>
+          <option value="vision">视觉模型（更准，需配视觉模型）</option>
+        </select>
+        <div class="hint" style="margin-top:6px">本地 OCR 用 Tesseract 在浏览器内识别，完全不联网；印刷体准确，手写/复杂排版略弱。</div>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" id="ocrDocImages" /> 导入文档时识别其中的图片</label>
+        <div class="hint" style="margin-top:6px">docx 里的题目、表格、截图会先用本地 OCR 转成文字一起入库，关掉则只取正文文字。</div>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" id="autoSaveAnswers" /> 每答完题自动保存到本地</label>
+        <div class="hint" style="margin-top:6px">记录写到浏览器下载目录的 <code>exa-答题记录-日期.jsonl</code>，一行一条，方便事后核对。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>知识库</h2>
+    <div class="hint" style="margin:-6px 0 12px">上传题库、讲义、课程笔记。插件会把文件切成「题目 → 答案」「术语 → 定义」条目，在本地建索引；解题时先查知识库，命中就不调模型，并在面板里标注来源是<b>知识库</b>还是<b>AI</b>。</div>
+
+    <div class="drop" id="kbDrop">
+      <b>点击选择文件</b> 或把文件拖到这里（支持多选）
+      <div class="hint">txt / md / csv / tsv / json / pdf / docx / xlsx / html</div>
+    </div>
+    <input type="file" id="kbFile" multiple hidden
+           accept=".txt,.md,.markdown,.csv,.tsv,.json,.pdf,.docx,.xlsx,.xls,.html,.htm,.log" />
+
+    <div class="kbprog" id="kbProgress" style="display:none">
+      <div class="fill"></div><span></span>
+    </div>
+
+    <div class="kblist" id="kbList"></div>
+
+    <div class="kbbrowse" id="kbBrowser">
+      <div class="kbbrowse-head">
+        <b>知识库条目</b>
+        <span id="kbBrowseSum">—</span>
+      </div>
+      <div class="kbbrowse-bar">
+        <input type="text" id="kbBrowseQuery" placeholder="按题干 / 答案 / 原文搜索…" spellcheck="false" />
+        <button class="ghost" id="kbBrowseSearch">搜索</button>
+        <button class="ghost" id="kbBrowseReset">全部</button>
+      </div>
+      <div class="kbbrowse-list" id="kbBrowseList"></div>
+      <div class="kbbrowse-pager">
+        <button class="ghost" id="kbBrowsePrev">上一页</button>
+        <span id="kbBrowsePage">—</span>
+        <button class="ghost" id="kbBrowseNext">下一页</button>
+      </div>
+    </div>
+
+    <div class="kbenrich">
+      <div class="kbenrich-head">
+        <b>AI 深度整理</b>
+        <span id="kbEnrichState">未开始</span>
+      </div>
+      <div class="kbenrich-desc">
+        让模型把每条知识加工成「同义问法 + 关键词 + 知识点」并保存下来。
+        之后你换个问法、题干措辞不同，也能命中题库。只需做一次，新增题目再补跑即可。
+      </div>
+      <div class="kbenrich-btns">
+        <button class="ghost" id="kbEnrichBtn">开始 AI 整理</button>
+        <button class="ghost" id="kbEnrichClear">清除整理结果</button>
+      </div>
+    </div>
+
+    <div class="kbmeta">
+      <span id="kbStats">尚未导入文件</span>
+      <span>
+        <button class="ghost" id="exportLog" title="导出最近 120 次答题的实际过程，用于排查答错原因">导出答题记录</button>
+        <button class="ghost" id="kbWarm" title="把题库索引载入后台内存，之后的检索是毫秒级">立即预热</button>
+        <button class="ghost" id="kbClear">清空知识库</button>
+      </span>
+    </div>
+    <div class="kbwarm" id="kbWarmState">索引状态：检查中…</div>
+
+    <div class="switch">
+      <input type="checkbox" id="kbEnabled" />
+      <div>
+        <div class="lab">解题时使用知识库</div>
+        <div class="desc">关闭后只走模型，忽略已导入的条目。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="kbDirect" />
+      <div>
+        <div class="lab">命中即直答（不调用模型）</div>
+        <div class="desc">题干精确命中或高置信相关时直接采用知识库答案，省 token 也更快；未命中时问法不同也建议再让 AI 确认。</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>检索测试（看知识库到底命中了什么）</label>
+      <div class="pw">
+        <input type="text" id="kbQuery" placeholder="粘贴一道题的题干，回车即可" spellcheck="false" />
+        <button id="kbTest" type="button">检索</button>
+      </div>
+      <pre class="kbresult" id="kbResult" style="display:none"></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>解题参数</h2>
+    <div class="grid3">
+      <div class="field">
+        <label>温度 temperature</label>
+        <input type="number" id="temperature" min="0" max="1.5" step="0.05" />
+      </div>
+      <div class="field">
+        <label>最大输出 tokens</label>
+        <input type="number" id="maxTokens" min="256" max="32000" step="128" />
+      </div>
+      <div class="field">
+        <label>超时（秒）</label>
+        <input type="number" id="timeoutSec" min="15" max="600" step="5" />
+      </div>
+    </div>
+
+    <div class="field" style="max-width:220px">
+      <label>批量解题并发（1-4）</label>
+      <input type="number" id="concurrency" min="1" max="4" step="1" />
+      <div class="hint">并发越高越快，但更容易触发接口限流。</div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="doubleCheck" />
+      <div>
+        <div class="lab">复核模式（解得慢一点，正确率更高）</div>
+        <div class="desc">第一遍作答后，再让模型独立推演一次；两次不一致时采用复核结果并标注。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="autoFillAfterSolve" />
+      <div>
+        <div class="lab">解完自动填涂</div>
+        <div class="desc">关闭时只显示答案，由你在面板里逐题确认后点「填入」。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="kbAiExpand" />
+      <div>
+        <div class="lab">AI 语义扩展检索（推荐）</div>
+        <div class="desc">题库里有相关内容、但题干措辞对不上时，让模型把题干改写成几种同义问法再检索一次，明显提高命中率。仅在被判定"相关但不够精确"时触发，不会每题都多花 token。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="text" id="siteAllow" placeholder="留空 = 所有网站；例如 exam.company.com 或 10.4.4.*" style="width:100%;max-width:420px" />
+      <div>
+        <div class="lab">只在匹配的网站启用（每行一个，支持 * 通配符）</div>
+        <div class="desc">留空表示所有网站都启用。<b>建议只填考试站点</b>，避免在配置页、网关上无谓地跑。例：<code>exam.company.com</code>、<code>*.edu.cn</code>。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="flashOn" />
+      <div>
+        <div class="lab">显示答案来源标记</div>
+        <div class="desc">填入答案后，<b>题目上方</b>会短暂显示「来自知识库 · 可信度 99%」。不想看到就取消勾选。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="number" id="flashMs" min="500" max="6000" step="100" style="width:88px" />
+      <div>
+        <div class="lab">标记停留时长（毫秒）</div>
+        <div class="desc">默认 1500（1.5 秒）。上面的开关关掉时这一项不生效。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="kbStrict" />
+      <div>
+        <div class="lab">只用知识库（严格模式）</div>
+        <div class="desc">只采用题库里<b>精确命中</b>的答案；没收录的题明确标注「知识库未收录」，不调用模型猜测。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="followMode" />
+      <div>
+        <div class="lab">跟随模式（推荐）</div>
+        <div class="desc">你翻到新的一题，它自动识别、作答并填上；<b>不会自己翻页</b>，节奏完全由你控制。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="stealth" />
+      <div>
+        <div class="lab">隐式模式</div>
+        <div class="desc">不显示悬浮面板，页面上不挂任何 UI；需要时按 <code>Alt+Shift+Q</code> 才唤出。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="autoNext" />
+      <div>
+        <div class="lab">自动连做时自动翻页</div>
+        <div class="desc">只在点「自动连做」后生效；默认关闭，避免它自己往下跑。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="skipAnswered" />
+      <div>
+        <div class="lab">不覆盖页面上已有作答</div>
+        <div class="desc">填涂前先看这道题是不是已经答过；答过就跳过，避免把你自己改过的答案冲掉。</div>
+      </div>
+    </div>
+
+    <div class="switch">
+      <input type="checkbox" id="cacheEnabled" />
+      <div>
+        <div class="lab">复用答案缓存（省 token）</div>
+        <div class="desc">同一道题第二次出现时直接用上次的答案，标注「缓存答案」；知识库优先于缓存，缓存优先于模型。</div>
+      </div>
+    </div>
+
+    <div class="kbmeta" style="margin-top:2px">
+      <span id="cacheStats">缓存：—</span>
+      <button class="ghost" id="cacheClear" type="button">清空答案缓存</button>
+    </div>
+
+    <details>
+      <summary>高级：自定义请求头 / 系统提示词</summary>
+      <div class="field">
+        <label>额外请求头（JSON）</label>
+        <textarea id="extraHeaders" placeholder='{"X-Title":"exam-helper"}' spellcheck="false"></textarea>
+        <div class="hint">给网关、OneAPI 之类的代理加自定义头用，普通接口留空。</div>
+      </div>
+      <div class="field">
+        <label>自定义系统提示词（留空用内置的两段式解题提示词）</label>
+        <textarea id="systemPrompt" placeholder="留空即可" spellcheck="false" style="min-height:120px"></textarea>
+      </div>
+    </details>
+  </div>
+
+  <div class="bar">
+    <button class="primary" id="save">保存设置</button>
+    <button id="test">测试连接</button>
+    <button class="ghost" id="reset">恢复默认</button>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+<script src="options.js"></script>
+</body>
+</html>

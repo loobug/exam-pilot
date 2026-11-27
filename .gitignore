@@ -1,0 +1,31 @@
+# 依赖
+node_modules/
+
+# 打包产物（dist 里是版本化的扩展 zip，不入库）
+dist/
+extension/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+
+# 本地临时
+*.tmp
+tools/_*.py
+tools/_*.cjs
+tools/_*.mjs
+
+# 测试产物（生成的 docx/图片不入库）
+demo/kb-with-image.docx
+demo/kb-5q.docx
+demo/docx-img.png
+demo/docx-img-5q.png
+
+# 保留
+!vendor/
+
+extension.zip
+*.zip

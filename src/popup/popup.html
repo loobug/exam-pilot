@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>考试辅助 AI</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;width:336px;background:#0e1117;color:#e6edf3;
+    font:13px/1.55 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:13px 14px 11px;border-bottom:1px solid #1e2733}
+  .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#1f6feb,#7c3aed);
+    display:grid;place-items:center;font-weight:700;font-size:14px;color:#fff;flex:0 0 auto}
+  .t{font-weight:700;font-size:14px;letter-spacing:.2px}
+  .sub{font-size:11px;color:#7d8ea3;margin-top:1px;display:flex;align-items:center;gap:6px}
+  .dot{width:6px;height:6px;border-radius:50%;background:#3fb950;flex:0 0 auto}
+  .dot.warn{background:#d29922}
+  .dot.err{background:#f85149}
+
+  .body{padding:11px 14px 13px}
+  .sec-label{font-size:10.5px;color:#5f7085;letter-spacing:.6px;margin:0 0 6px;text-transform:uppercase}
+
+  button{appearance:none;border:1px solid #2b3644;background:#182130;color:#dbe6f2;border-radius:9px;
+    padding:9px 11px;font-size:12.5px;cursor:pointer;transition:.13s;font-family:inherit;
+    display:flex;align-items:center;gap:8px;text-align:left;width:100%}
+  button:hover{background:#222e3f;border-color:#3b4a5e;color:#fff}
+  button:active{transform:translateY(1px)}
+  button.primary{background:#1f6feb;border-color:#2b7bf5;color:#fff;font-weight:600;padding:11px 12px}
+  button.primary:hover{background:#2b7bf5}
+  .ico{width:16px;text-align:center;flex:0 0 auto;font-size:13px;opacity:.95}
+  .lbl{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .lbl b{font-weight:600;font-size:12.5px}
+  .lbl i{font-style:normal;font-size:10.5px;color:#7f90a6;font-weight:400}
+  button.primary .lbl i{color:#c9defa}
+  .kbd{font:10.5px/1 ui-monospace,Consolas,monospace;color:#9db0c7;border:1px solid #33455c;
+    border-radius:5px;padding:3px 5px;white-space:nowrap;flex:0 0 auto;background:#0f1620}
+  button.primary .kbd{color:#dce9fb;border-color:#4d84cc;background:rgba(255,255,255,.12)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .grid button{padding:8px 10px;justify-content:center}
+  .grid .lbl{align-items:center}
+  .grid .lbl b{font-size:12px}
+
+  .meta{display:flex;flex-direction:column;gap:5px;border-top:1px solid #1e2733;
+    padding-top:10px;margin-top:11px;font-size:11.5px;color:#8b98a9}
+  .mrow{display:flex;justify-content:space-between;gap:10px}
+  .mrow span:first-child{color:#6d7f95;flex:0 0 auto}
+  .mrow span:last-child{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ok{color:#3fb950}
+  .bad{color:#f0883e}
+  .hint{margin-top:9px;font-size:11px;color:#6d7f95;line-height:1.65;
+    background:#121821;border:1px solid #1d2632;border-radius:8px;padding:8px 10px}
+  .hint b{color:#96a8bd;font-weight:600}
+  .warnbox{display:none;margin-top:9px;font-size:11px;line-height:1.6;color:#e3b341;
+    background:#241d0f;border:1px solid #4a3a15;border-radius:8px;padding:8px 10px}
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo">考</div>
+    <div style="flex:1;min-width:0">
+      <div class="t">考试辅助 · AI 解题</div>
+      <div class="sub"><span class="dot" id="dot"></span><span id="sub">正在读取状态…</span></div>
+    </div>
+  </header>
+
+  <div class="body">
+    <div class="sec-label">解题</div>
+
+    <button class="primary" id="open">
+      <span class="ico">⚡</span>
+      <span class="lbl"><b>打开解题面板</b><i>逐题看思考过程与答案</i></span>
+      <span class="kbd">Alt+Shift+Q</span>
+    </button>
+
+    <div class="grid">
+      <button id="auto" title="不显示面板，按间隔自动解题并填涂">
+        <span class="ico">▶</span>
+        <span class="lbl"><b>自动连做</b></span>
+      </button>
+      <button id="settings" title="模型、知识库、严格模式、来源标记时长">
+        <span class="ico">⚙</span>
+        <span class="lbl"><b>设置</b></span>
+      </button>
+    </div>
+
+    <div class="warnbox" id="warnbox"></div>
+
+    <div class="meta">
+      <div class="mrow"><span>模型</span><span id="model">—</span></div>
+      <div class="mrow"><span>API Key</span><span id="key">—</span></div>
+      <div class="mrow"><span>知识库</span><span id="kb">—</span></div>
+    </div>
+
+    <div class="hint" id="hint">
+      快捷键可在 <b>chrome://extensions/shortcuts</b> 里改。图片题请配视觉模型；浏览器内置 PDF 阅读器扩展读不到内容。
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

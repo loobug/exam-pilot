@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>结构陌生的考试页（验证纯文本兜底）</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#f6f7fb;font:15px/1.8 -apple-system,"Microsoft YaHei",system-ui,sans-serif;color:#222}
+  .k9x{max-width:820px;margin:0 auto;padding:24px 18px}
+  .a3f{background:#fff;border:1px solid #e7eaf1;border-radius:12px;padding:18px 20px;margin-bottom:12px}
+  .b7c{font-weight:700;margin:0 0 8px}
+  .c2d{color:#333}
+  .hh{color:#8b93a3;font-size:13px}
+</style>
+</head>
+<body>
+<!-- 故意用毫无语义的 class，且选项全部挤在一行（真实系统里很常见） -->
+<div class="k9x">
+  <div class="a3f">
+    <div class="b7c" id="s1">1. 以下哪个属于传输层协议？</div>
+    <div class="c2d" id="o1">A. TCP　B. IP　C. ARP　D. ICMP</div>
+  </div>
+
+  <div class="a3f">
+    <div class="b7c" id="s2">2. HTTPS 默认端口是多少？</div>
+    <div class="c2d" id="o2">A. 80　B. 443　C. 8080　D. 3306</div>
+  </div>
+
+  <div class="a3f">
+    <div class="b7c" id="s3">3. 下列哪些属于操作系统？（多选）</div>
+    <div class="c2d" id="o3">A. Linux　B. Windows Server　C. MySQL　D. macOS</div>
+  </div>
+
+  <div class="hh">这些题没有任何 .option / input 结构，选项还挤在一行——用于验证纯文本兜底。</div>
+</div>
+</body>
+</html>
