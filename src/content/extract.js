@@ -108,14 +108,14 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
    */
   function isJudgeText(text) {
     const t = String(text || '')
-      .replace(/^\s*[A-H]\s*[.、．)）:：]\s*/, '')
+      .replace(/^\s*(?:[（(\[]\s*[A-Ha-h]\s*[)）\]]|[A-Ha-h]\s*[.、,，:：)）．\s])\s*/, '')
       .replace(/[\s。.，,、；;：:（）()\[\]【】"'"'']/g, '')
       .trim();
     if (!t) return false;
     if (JUDGE_WORDS.test(t)) return true;
     if (t.length > 12) return false;                    // 太长多半是正常选项
-    if (/(不正确|不对|不属于|错误说法|不成立)/.test(t)) return true;  // 也算判断类
-    if (/正确|错误|对的|错的|√|×|✓|✗/.test(t)) return true;
+    if (/(不正确|不对|不属于|错误说法|不成立|说法错误)/.test(t)) return true;  // 也算判断类
+    if (/正确|错误|对的|错的|正确选项|错误选项|说法正确|√|×|✓|✗|✔|✘/.test(t)) return true;
     return false;
   }
 
@@ -125,6 +125,7 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
     多项选择: 'multi', 多项选择题: 'multi', 多选: 'multi', 多选题: 'multi',
     多项: 'multi', 不定项选择: 'multi', 不定项: 'multi', 不定项选择题: 'multi',
     判断: 'judge', 判断题: 'judge', 判断正误: 'judge', 正误: 'judge',
+    是非: 'judge', 是非题: 'judge', 对错: 'judge', 对错题: 'judge',
     填空: 'fill', 填空题: 'fill',
     简答: 'short', 简答题: 'short', 问答: 'short', 问答题: 'short',
     论述: 'short', 论述题: 'short', 名词解释: 'short', 材料题: 'short',
@@ -134,15 +135,15 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
 
   /** 从 class 名读题型（很多考试系统把题型直接写在标签的 class 上，如 badge multi） */
   const CLS_KIND = [
-    [/(^|[\s_-])(multi|multiple|multichoice|multi-choice|checkbox|duoxuan)([\s_-]|$)/i, 'multi'],
-    [/(^|[\s_-])(single|radio|singlechoice|single-choice|danxuan)([\s_-]|$)/i, 'single'],
-    [/(^|[\s_-])(judge|truefalse|true-or-false|true_or_false|panduan|bool)([\s_-]|$)/i, 'judge'],
+    [/(^|[\s_-])(multi|multiple|multichoice|multi-choice|checkbox|duoxuan|is-multi|type-multi)([\s_-]|$)|multiChoice|qTypeMulti/i, 'multi'],
+    [/(^|[\s_-])(single|radio|singlechoice|single-choice|danxuan|is-single|type-single)([\s_-]|$)|singleChoice|qTypeSingle/i, 'single'],
+    [/(^|[\s_-])(judge|truefalse|true-or-false|true_or_false|panduan|bool|is-judge|type-judge)([\s_-]|$)/i, 'judge'],
     [/(^|[\s_-])(fill|blank|fillblank|tiankong)([\s_-]|$)/i, 'fill'],
     [/(^|[\s_-])(short|essay|subjective|jianda)([\s_-]|$)/i, 'short']
   ];
 
-  const HINT_MULTI = /请选择(?:所有|多项|全部|至少两|多个)|可多选|多选|选择所有(?:正确|符合)|选出所有/;
-  const HINT_SINGLE = /请选择(?:一项|单项|一个|唯一)|单选|选择(?:一项|一个)/;
+  const HINT_MULTI = /请选择(?:所有|多项|全部|至少两|多个)|可多选|多选题?|选择所有(?:正确|符合)|选出所有|至少选两/;
+  const HINT_SINGLE = /请选择(?:一项|单项|一个|唯一)|单选题?|选择(?:一项|一个)/;
 
   function typeFromClass(container) {
     if (!container) return null;
@@ -150,12 +151,55 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
     try { els.push(...container.querySelectorAll('[class]')); } catch (e) { }
     for (const el of els) {
       const cls = String(el.className || '');
-      if (!cls || cls.length > 120) continue;
+      if (!cls || cls.length > 160) continue;
       for (const [re, kind] of CLS_KIND) {
         if (re.test(cls)) return kind;
       }
     }
     return null;
+  }
+
+  function typeFromAria(container, options) {
+    const check = el => {
+      if (!el || !el.getAttribute) return null;
+      const role = String(el.getAttribute('role') || '').toLowerCase();
+      if (role === 'checkbox' || role === 'checkboxgroup') return 'multi';
+      if (role === 'radio' || role === 'radiogroup') return 'single';
+      return null;
+    };
+    const r0 = check(container);
+    if (r0) return r0;
+    for (const o of (options || [])) {
+      const r = check(o && o.el);
+      if (r) return r;
+    }
+    try {
+      if (container && container.querySelector('[role="checkbox"]')) return 'multi';
+      if (container && container.querySelector('[role="radio"]')) return 'single';
+    } catch (e) { }
+    return null;
+  }
+
+  /** 读取紧邻题块外层的题型标签（常见于「头部题型条 + 题干体」或「二、多选题」小节头） */
+  function contextTypeText(container) {
+    if (!container) return '';
+    const bits = [];
+    try {
+      const prev = container.previousElementSibling;
+      if (prev) {
+        const pt = U.oneLine(prev.innerText || '');
+        if (pt && pt.length <= 80) bits.push(pt);
+      }
+      const p = container.parentElement;
+      if (p && p !== document.body && p !== document.documentElement) {
+        const pMeta = p.querySelector(':scope > .qtype,:scope > .question-type,:scope > .type,:scope > .badge,:scope > h2,:scope > h3,:scope > h4');
+        if (pMeta && !pMeta.contains(container)) {
+          const mt = U.oneLine(pMeta.innerText || '');
+          if (mt && mt.length <= 80) bits.push(mt);
+        }
+      }
+    } catch (e) { }
+    return bits.join(' ');
   }
 
   function normalizeTypeKey(raw) {
@@ -168,7 +212,7 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
 
   /**
    * 统一题型判定
-   * 判定顺序：物理约束（原生 input / 对错选项）> class 名 > 标签文字 > 提示语 > 默认单选
+   * 判定顺序：物理约束（对错选项 / 原生 input / ARIA role）> class 名 > 标签文字 > 提示语 > 无法确定返回 'auto'
    */
   function decideKind(container, text, options, inputs) {
     const opts = options || [];
@@ -187,19 +231,25 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
       if (anyRadio && !anyCheckbox) return 'single';
     }
 
+    // 2.5) ARIA role
+    const byAria = typeFromAria(container, opts);
+    if (byAria) return byAria;
+
     // 3) class 名（如 badge multi / question-type-judge）
     const byClass = typeFromClass(container);
     if (byClass) return byClass;
 
-    // 4) 题型标签文字
-    const byTag = typeFromTag(text);
+    // 4) 题型标签文字（含外层相邻题型条）
+    const fullMeta = String(text || '') + ' ' + contextTypeText(container);
+    const byTag = typeFromTag(fullMeta);
     if (byTag) return byTag;
 
     // 5) 操作提示语
-    if (HINT_MULTI.test(text)) return 'multi';
-    if (HINT_SINGLE.test(text)) return 'single';
+    if (HINT_MULTI.test(fullMeta)) return 'multi';
+    if (HINT_SINGLE.test(fullMeta)) return 'single';
 
-    return 'single';
+    // 6) 纯 DOM 点击型且无任何显式题型标识时，交由模型/题库判断
+    return 'auto';
   }
 
   let __cache = [];
@@ -376,14 +426,14 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
       if (optionEntries.length < 2) return;
 
       const fullText = U.norm(container.innerText || container.textContent || '');
-      const stem = cutStem(fullText, rows.map(r => r.el.innerText || r.el.textContent || ''));
-      if (!stem || stem.length < 2) return;
+      const rawStem = cutStem(fullText, rows.map(r => r.el.innerText || r.el.textContent || ''));
+      if (!rawStem || rawStem.length < 2) return;
 
-      const kind = decideKind(container, stem + ' ' + U.oneLine(container.innerText || '').slice(0, 120), optionEntries, group);
+      const kind = decideKind(container, rawStem + ' ' + U.oneLine(container.innerText || '').slice(0, 600), optionEntries, group);
 
       out.push(build({
         kind,
-        stem: stripTag(stem) || stem,
+        stem: stripTag(rawStem) || rawStem,
         options: optionEntries.map(o => ({ label: o.label, text: o.text })),
         source: 'input',
         orderEl: container,
@@ -395,19 +445,57 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
 
   /* ---------- 路径二：无原生 input 的文本题块（点击型/画布旁文本） ---------- */
 
+  /** 从容器里抽取无 A/B 前缀的纯文字/符号判断选项（如「正确 / 错误」「对 / 错」「√ / ×」） */
+  function extractJudgePairRows(node) {
+    const els = Array.from(node.querySelectorAll('button,a,label,[role=button],[role=radio],div,p,li,td,span,dd'));
+    const cands = [];
+    for (const r of els) {
+      if (!U.visible(r)) continue;
+      const rawText = U.oneLine(r.innerText || '');
+      if (!rawText || rawText.length > 24) continue;
+      if (!isJudgeText(rawText)) continue;
+      const cleanT = rawText.replace(/[\s。.，,、；;：:（）()\[\]【】"'"'']/g, '');
+      const pol = /(错误|错的|不对|不正确|不是|不属于|不成立|说法错误|^[错否假×✗✘xXfFnN]$|错误选项)/i.test(cleanT) ? '错' : '对';
+      cands.push({ el: r, pol, text: U.norm(rawText) });
+    }
+    if (cands.length < 2) return [];
+    const leafs = cands.filter(r => !cands.some(o => o !== r && r.el.contains(o.el)));
+    const rows = [];
+    const seenPol = new Set();
+    for (const r of leafs) {
+      let target = r.el;
+      let p = target.parentElement;
+      for (let k = 0; k < 2 && p && p !== node && p !== document.body; k++, p = p.parentElement) {
+        const pt = U.oneLine(p.innerText || '');
+        if (pt.length <= 24 && isJudgeText(pt)) target = p;
+        else break;
+      }
+      if (seenPol.has(r.pol)) continue;
+      if (rows.some(x => x.el === target || x.el.contains(target) || target.contains(x.el))) continue;
+      seenPol.add(r.pol);
+      rows.push({ el: target, label: U.letter(rows.length), text: r.text, pol: r.pol });
+    }
+    if (rows.length === 2 && seenPol.has('对') && seenPol.has('错')) {
+      return rows.map(({ el, label, text }) => ({ el, label, text }));
+    }
+    return [];
+  }
+
   function scanChoiceByText() {
     const out = [];
     const nodes = Array.from(document.querySelectorAll('div,section,article,li,dl,table,tbody,tr,td,p,form,fieldset'));
-    const seenStem = new Set();
+    const seenStem = new Map();
     let budget = 2500;
 
     for (const node of nodes) {
       if (budget-- <= 0) break;
       // 有原生选项 input 的容器交给路径一，避免重复
       if (node.querySelector('input[type=radio],input[type=checkbox]')) continue;
+      if (node.closest('nav,header,footer,[role=navigation]')) continue;
       const raw = node.textContent || '';
       if (raw.length < 8 || raw.length > 4000) continue;
-      if (!NUM_NO_RE.test(raw) && !HAS_QTAG_RE.test(raw)) continue;
+      const hasQTag = NUM_NO_RE.test(raw) || HAS_QTAG_RE.test(raw);
+      const hasAbMarks = /(?:^|[\s\n])A\s*[.、,，:：)）．]\s*\S[\s\S]*?(?:^|[\s\n])B\s*[.、,，:：)）．]\s*\S/.test(raw);
 
       // 选项行：兼容「A. 文本」「A\n文本」「A」三种写法，只取最内层
       const own = Array.from(node.querySelectorAll('div,p,li,td,span,label,a,button,dd,tr'));
@@ -421,7 +509,7 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
       }
       const leafs = cands.filter(r => !cands.some(o => o !== r && r.el.contains(o.el)));
 
-      const rows = [];
+      let rows = [];
       for (const r of leafs) {
         let text = r.text;
         let target = r.el;
@@ -446,7 +534,11 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
         if (rows.some(x => x.el === target || x.label === r.label)) continue;
         rows.push({ el: target, label: r.label, text });
       }
+      if (rows.length < 2) {
+        rows = extractJudgePairRows(node);
+      }
       if (rows.length < 2 || rows.length > 10) continue;
+      if (!hasQTag && !hasAbMarks && rows.length !== 2) continue;
 
       const letters = new Set(rows.map(r => r.label));
       if (letters.size !== rows.length) continue;
@@ -458,24 +550,34 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
       }
       if (!stem || stem.length < 4) continue;
 
-      const key = U.hash(U.oneLine(stem).slice(0, 120));
-      if (seenStem.has(key)) continue;
-      seenStem.add(key);
-
-      stem = stripTag(stem) || stem;
-      // 判题型：把容器的元信息（题型标签、提示语）一起喂进去
+      const rawStem = stem;
+      stem = stripTag(rawStem) || rawStem;
+      // 判题型：在 stripTag 前的原始题干 + 容器元信息基础上判断，避免题型标签被提前剥离
       const metaEl = node.querySelector('.qmeta,.qtype,.question-type,.qhead,.q-title,[class*=meta],[class*=type]');
-      const metaText = U.oneLine((metaEl ? metaEl.innerText : '') || '') + ' ' + U.oneLine(node.innerText || '').slice(0, 120);
-      const kind = decideKind(node, metaText + ' ' + stem, rows, []);
+      const metaText = U.oneLine((metaEl ? metaEl.innerText : '') || '') + ' ' + U.oneLine(node.innerText || '').slice(0, 600);
+      const kind = decideKind(node, metaText + ' ' + rawStem, rows, []);
 
-      out.push(build({
+      const item = build({
         kind,
         stem,
         options: rows.map(r => ({ label: r.label, text: r.text })),
         source: 'text',
         orderEl: node,
         refs: { container: node, options: rows.map(r => ({ el: r.el, label: r.label, text: r.text, input: null })), inputs: [] }
-      }));
+      });
+
+      const key = U.hash(U.oneLine(stem).slice(0, 120));
+      if (seenStem.has(key)) {
+        const prevIdx = seenStem.get(key);
+        const prev = out[prevIdx];
+        if (prev && prev.refs && prev.refs.container && prev.refs.container !== node &&
+            prev.refs.container.contains(node) && rows.length >= prev.options.length) {
+          out[prevIdx] = item;
+        }
+        continue;
+      }
+      seenStem.set(key, out.length);
+      out.push(item);
     }
     return out;
   }
@@ -573,7 +675,7 @@ const JUDGE_WORDS = /^(对|错|正确|错误|是|否|真|假|√|×|✓|✗|T|F|
 
   /* ---------- 页面已给出的答案（练习/查看答案模式） ---------- */
 
-  const PAGE_ANSWER_RE = /(?:正确答案|参考答案|标准答案|答案)\s*[:：]\s*([A-H]{1,8}|对|错|正确|错误|√|×|✓|✗|T|F)(?![A-Za-z\u4e00-\u9fa5])/;
+  const PAGE_ANSWER_RE = /(?:正确答案|参考答案|标准答案|答案)\s*[:：]\s*([A-H]{1,8}|对|错|正确|错误|√|×|✓|✗|✔|✘|T|F)(?![A-Za-z\u4e00-\u9fa5])/;
   const CORRECT_CLASS_RE = /(^|[\s_-])(correct|right|is-correct|correct-answer|answer-correct|success|dui|crt)([\s_-]|$)/i;
 
   function detectPageAnswer(q) {

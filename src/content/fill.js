@@ -3,7 +3,7 @@ var qxFill = (function () {
   'use strict';
   const U = qxUtil;
 
-  const JUDGE_TRUE = /^(对|正确|是|真|√|✓|T|True|Y|Yes|正确选项)$/i;
+  const JUDGE_TRUE = /^(对|正确|是|真|√|✓|✔|T|True|Y|Yes|正确选项)$/i;
   const JUDGE_FALSE = /^(错|错误|否|假|×|✗|X|F|False|N|No)$/i;
 
   /**
@@ -25,8 +25,8 @@ var qxFill = (function () {
     if (negTrue) return -1;
 
     // 含"错"字样优先判错，避免 "错误" 里含 "对" 之类的拼读造成误判
-    if (/错误|错的|×|✗/.test(t)) return -1;
-    if (/正确|对的|√|✓/.test(t)) return 1;
+    if (/错误|错的|×|✗|✘/.test(t)) return -1;
+    if (/正确|对的|√|✓|✔/.test(t)) return 1;
     if (/^(是|真|T|True|Y|Yes)$/i.test(t)) return 1;
     if (/^(否|假|F|False|N|No)$/i.test(t)) return -1;
     return 0;
@@ -36,10 +36,12 @@ var qxFill = (function () {
 
   function parseLetters(answer, optCount) {
     const src = String(answer || '');
-    const raw = src.toUpperCase();
+    const raw = src.toUpperCase()
+      .replace(/[（(]\s*仅供[^）)]*[)）]/g, '')
+      .trim();
 
     // 0) 「全选 / 以上都是 / 全部都选 / 全部正确」→ 所有选项
-    if (/(全选|以上都(是|正确|选)|全部(都)?(选|正确|是)|都选|全对)/.test(src)) {
+    if (/(全选|以上都(是|正确|选)|全部(都)?(选|正确|是)|都选|全对|以上皆是)/.test(src)) {
       const n = Math.max(1, Math.min(8, Number(optCount) || 6));
       return Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i));
     }
@@ -181,6 +183,9 @@ var qxFill = (function () {
   function nativeCheck(input, want) {
     if (!input) return false;
     if (isChecked(input) === want) return true;
+    if (input._valueTracker && typeof input._valueTracker.setValue === 'function') {
+      try { input._valueTracker.setValue(String(!want)); } catch (e) { }
+    }
     try {
       const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
       if (desc && desc.set) desc.set.call(input, want); else input.checked = want;
@@ -282,7 +287,16 @@ var qxFill = (function () {
     // 只保留最近 3 次批量操作，避免长期占用
   }
 
-  const SELECTED_CLS = /(^|\s)(on|active|selected|checked|is-checked|cur|current)(\s|$)/;
+  const SELECTED_CLS = /(^|\s)(on|active|actived|is-active|selected|is-selected|checked|is-checked|cur|current)(\s|$)/i;
+
+  function isInputVisuallyHidden(inp) {
+    try {
+      const st = window.getComputedStyle(inp);
+      if (st && (st.display === 'none' || st.visibility === 'hidden' || st.pointerEvents === 'none')) return true;
+      const r = inp.getBoundingClientRect();
+      return r.width < 2 || r.height < 2;
+    } catch (e) { return false; }
+  }
 
   /**
    * 每次点击前重新从容器里取选项元素。
@@ -294,10 +308,15 @@ var qxFill = (function () {
     if (!o) return false;
     if (o.input) {
       if (!!o.input.checked === want) return true;
+      // 隐藏的原生控件（如 display:none / 0x0）先点外层可见选项行，再点 input 自身
+      if (isInputVisuallyHidden(o.input) && o.el && o.el !== o.input) {
+        realClick(o.el);
+        if (!!o.input.checked === want) return true;
+      }
       // 先模拟真实鼠标点击：页面自己的 hover/active/校验逻辑都会跑一遍
       realClick(o.input);
       if (!!o.input.checked === want) return true;
-      if (o.el) realClick(o.el);
+      if (o.el && o.el !== o.input) realClick(o.el);
       if (!!o.input.checked === want) return true;
       // 实在点不动（被覆盖层挡住、disabled 等）才直接改属性兜底
       nativeCheck(o.input, want);
@@ -305,7 +324,15 @@ var qxFill = (function () {
     }
     if (!o.el) return false;
     if (isOptionOn(o) === want) return true;
+    const prevCls = String(o.el.className || '');
+    const prevStyle = String(o.el.getAttribute && o.el.getAttribute('style') || '');
     realClick(o.el);   // 只点一次；是否生效由外层回读判断
+    const nextCls = String(o.el.className || '');
+    const nextStyle = String(o.el.getAttribute && o.el.getAttribute('style') || '');
+    try {
+      if (want && (nextCls !== prevCls || nextStyle !== prevStyle)) o.el.__exaClickedOn = true;
+      else if (!want) delete o.el.__exaClickedOn;
+    } catch (e) { }
     return true;
   }
 
@@ -363,6 +390,18 @@ var qxFill = (function () {
     const tag = first.tagName;
     let all = [];
     try { all = Array.from(container.querySelectorAll(tag)); } catch (e) { return opts; }
+    // 优先按归一化选项文本匹配（兼容有/无 A.B. 前缀），其次按 A-H 前缀过滤
+    const byText = opts.map(o => {
+      const want = U.norm(o.text || '');
+      return all.find(e => {
+        const t = U.norm(e.innerText || e.textContent || '');
+        return want && (t === want || t.endsWith(want) || (o.label && new RegExp('^' + o.label + '(\\s|\\n|\\.|、)').test(t)));
+      });
+    });
+    if (byText.every(Boolean)) {
+      return opts.map((o, i) => Object.assign({}, o, { el: byText[i] }));
+    }
+
     const filtered = all.filter(e => {
       const t = String(e.innerText || e.textContent || '').trim();
       return /^[A-H](\s|\n|\.|、|,|，|：|:)/.test(t) || /^[A-H]$/.test(t);
@@ -377,14 +416,23 @@ var qxFill = (function () {
     if (o.input) return !!o.input.checked;
     const el = o.el;
     if (!el) return false;
-    if (SELECTED_CLS.test(String(el.className || ''))) return true;
+    if (el.__exaClickedOn) return true;
+    const checkAttrs = node => {
+      if (!node || !node.getAttribute) return false;
+      if (SELECTED_CLS.test(String(node.className || ''))) return true;
+      return node.getAttribute('aria-checked') === 'true' ||
+        node.getAttribute('aria-selected') === 'true' ||
+        node.getAttribute('aria-pressed') === 'true' ||
+        node.getAttribute('data-checked') === 'true' ||
+        node.getAttribute('data-selected') === 'true' ||
+        node.getAttribute('data-active') === 'true';
+    };
+    if (checkAttrs(el)) return true;
     // 选中态常挂在父元素上（选项按钮包着字母 span）
-    if (el.parentElement && SELECTED_CLS.test(String(el.parentElement.className || ''))) return true;
-    if (el.getAttribute && el.getAttribute('aria-checked') === 'true') return true;
-    if (el.getAttribute && el.getAttribute('aria-selected') === 'true') return true;
+    if (el.parentElement && checkAttrs(el.parentElement)) return true;
     // 子元素里也可能带选中态（如 <button><i class="checked"/></button>）
     try {
-      const inner = el.querySelector('[class*=checked],[class*=selected],[class*=active]');
+      const inner = el.querySelector('[class*=checked],[class*=selected],[class*=is-active],[aria-checked="true"]');
       if (inner) return true;
     } catch (e) { }
     return false;
@@ -395,8 +443,7 @@ var qxFill = (function () {
     if (kind === "fill" || kind === "short" || kind === "calc") {
       return (q.refs.blanks || []).some(b => b && String(b.isContentEditable ? (b.innerText || "") : (b.value || "")).trim());
     }
-    if (opts.some(o => o.input && o.input.checked)) return true;
-    if (opts.some(o => o.el && /(^|\s)(on|active|selected|checked|is-checked)(\s|$)/.test(String(o.el.className || "")))) return true;
+    if (opts.some(isOptionOn)) return true;
     return false;
   }
 
@@ -452,9 +499,21 @@ var qxFill = (function () {
     if (!q) return { ok: false, error: "题目索引已失效，请重新识别" };
     if (!q.refs) return { ok: false, error: "该题无可用 DOM 引用（可能来自截图/选中文本）" };
 
-    const kind = payload.kind || q.kind;
+    let kind = payload.kind || q.kind;
     const answer = String(payload.answer == null ? "" : payload.answer).trim();
     if (!answer) return { ok: false, error: "答案为空" };
+
+    const optsList0 = q.refs.options || [];
+    if ((!kind || kind === "auto") && optsList0.length) {
+      if (optsList0.length <= 3 && optsList0.every(o => judgePolarity(o.text) !== 0)) kind = "judge";
+      else kind = parseLetters(answer, optsList0.length).length > 1 ? "multi" : "single";
+    } else if ((!kind || kind === "auto") && (q.refs.blanks || q.refs.inputs || []).length) {
+      kind = "fill";
+    }
+    if (kind !== "judge" && optsList0.length >= 2 && optsList0.length <= 3 &&
+        judgePolarity(answer) !== 0 && optsList0.every(o => judgePolarity(o.text) !== 0)) {
+      kind = "judge";
+    }
 
     // 不覆盖已有作答
     if (opts.skipAnswered && hasAnswer(q, kind)) {
@@ -471,7 +530,7 @@ var qxFill = (function () {
     const log = [];
 
     if (kind === "single" || kind === "multi" || kind === "judge") {
-      const optsList = q.refs.options || [];
+      const optsList = optsList0;
       if (!optsList.length) return { ok: false, error: "未识别到选项" };
 
       let chosen = [];
@@ -480,9 +539,12 @@ var qxFill = (function () {
         let target = null;
         if (wantPol !== 0) {
           target = optsList.find(o => judgePolarity(o.text) === wantPol);
-        } else {
-          const letters = parseLetters(answer);
+        }
+        if (!target) {
+          const letters = parseLetters(answer, optsList.length);
           if (letters.length) chosen = letters;
+          else if (wantPol === 1) target = optsList[0];
+          else if (wantPol === -1) target = optsList[1] || optsList[0];
           else target = optsList[0];
         }
         if (target && target.label) chosen = [target.label];

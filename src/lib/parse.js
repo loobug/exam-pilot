@@ -3,6 +3,7 @@
  */
 
 const TEXT_EXT = new Set(['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'html', 'htm', 'log', 'xml', 'yaml', 'yml']);
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif']);
 const LETTERS = 'ABCDEFGH';
 
 function extOf(name) {
@@ -24,6 +25,15 @@ function readAsBuffer(file) {
     fr.onload = () => resolve(fr.result);
     fr.onerror = () => reject(fr.error || new Error('读取失败'));
     fr.readAsArrayBuffer(file);
+  });
+}
+
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => reject(fr.error || new Error('读取失败'));
+    fr.readAsDataURL(file);
   });
 }
 
@@ -86,7 +96,15 @@ export function rowsToText(rows) {
           out.push(`${oc.letter}. ${stripLeadingLabel(rawOpt, oc.letter)}`);
         }
       } else if (combinedOptCol >= 0 && r[combinedOptCol]) {
-        out.push(String(r[combinedOptCol]).trim());
+        const rawCombined = String(r[combinedOptCol]).trim();
+        const parts = rawCombined.split(/\n+|\s*\|\s*|\s*；\s*/).map(s => s.trim()).filter(Boolean);
+        if (parts.length >= 2 && !/^\s*[A-Ha-h]\s*[.、,，:：)）．]/.test(parts[0])) {
+          parts.forEach((p, idx) => {
+            if (idx < LETTERS.length) out.push(`${LETTERS[idx]}. ${p}`);
+          });
+        } else {
+          out.push(rawCombined);
+        }
       }
       if (a) out.push(`答案：${a}`);
       if (eCol >= 0 && r[eCol]) out.push(`解析：${String(r[eCol]).trim()}`);
@@ -146,8 +164,28 @@ async function parsePdf(file) {
     if (line.trim()) parts.push(line);
     parts.push('');
   }
+  let text = parts.join('\n');
+  const images = [];
+  // 扫描版 PDF（几乎没有可选中文字层）：渲染前 20 页为图片交给 OCR 逐题切分
+  if (text.trim().length < 40 && typeof document !== 'undefined') {
+    const renderPages = Math.min(doc.numPages, 20);
+    for (let p = 1; p <= renderPages; p++) {
+      try {
+        const page = await doc.getPage(p);
+        const vp = page.getViewport({ scale: 1.8 });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(vp.width);
+        canvas.height = Math.round(vp.height);
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        const url = canvas.toDataURL('image/jpeg', 0.88);
+        if (url && url.length > 2000) images.push(url);
+      } catch (e) { }
+    }
+  }
+
   try { doc.destroy(); } catch (e) { }
-  return parts.join('\n');
+  return { text, images };
 }
 
 async function parseDocx(file) {
@@ -167,21 +205,20 @@ async function parseDocx(file) {
   }
 
   const images = [];
-  const seen = new Set();
-  const re = /<img[^>]*?src\s*=\s*"([^"]+)"/gi;
-  let m;
-  while ((m = re.exec(html))) {
-    const src = m[1];
-    if (!src || !src.startsWith('data:image/')) continue;
-    if (src.length < 2000) continue;        // 太小的多半是图标/项目符号
-    if (seen.has(src)) continue;            // 同一张图只处理一次
-    seen.add(src);
+  const srcToIdx = new Map();
+  // 在 HTML 原位保留 [[EXA_IMG_i]] 占位标记，确保图片识别出多道题后仍保留所在章节/标题上下文
+  const withPlaceholder = html.replace(/<img\b[^>]*>/gi, tag => {
+    const m = tag.match(/\bsrc\s*=\s*"([^"]+)"/i) || tag.match(/\bsrc\s*=\s*'([^']+)'/i);
+    const src = m ? m[1] : '';
+    if (!src || !src.startsWith('data:image/') || src.length < 2000) return '';
+    if (srcToIdx.has(src)) return `\n[[EXA_IMG_${srcToIdx.get(src)}]]\n`;
+    if (images.length >= 60) return '';
+    const idx = images.length;
+    srcToIdx.set(src, idx);
     images.push(src);
-    if (images.length >= 60) break;         // 防御上限
-  }
+    return `\n[[EXA_IMG_${idx}]]\n`;
+  });
 
-  // 图片位置替换成一个占位标记，让文本顺序不乱
-  const withPlaceholder = html.replace(/<img[^>]*>/gi, '');
   const text = htmlToText(withPlaceholder);
   return { text: text || '', images };
 }
@@ -210,6 +247,56 @@ async function parseXlsx(file) {
  * @param {(i:number,total:number)=>void} onProgress
  */
 
+/** 清理文档图片 OCR 常见的空格拆词和同行粘连，使多道题能被正确拆成多条索引 */
+function cleanOcrText(raw) {
+  return String(raw || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/参\s*考\s*答\s*案/g, '参考答案')
+    .replace(/正\s*确\s*答\s*案/g, '正确答案')
+    .replace(/标\s*准\s*答\s*案/g, '标准答案')
+    .replace(/答\s+案(?=\s*[:：】\]])/g, '答案')
+    .replace(/解\s+析(?=\s*[:：】\]])/g, '解析')
+    .replace(/^(\s*\d{1,4})\s+([.、)）．:：])/gm, '$1$2')
+    .replace(/^(\s*\d{1,4})\s*。(?=\s*\S)/gm, '$1.')
+    .replace(/^(\s*[A-H])\s+([.、,，:：)）．])/gm, '$1$2')
+    .trim();
+}
+
+/** 把非标准格式（如 bmp/emf）或过大的文档图片在浏览器端转为标准 JPEG，避免视觉接口拒收 */
+async function normalizeImageForOcr(dataUrl) {
+  if (!dataUrl || typeof document === 'undefined' || typeof Image === 'undefined') return dataUrl;
+  const isStandard = /^data:image\/(?:png|jpeg|jpg|webp);base64,/i.test(dataUrl);
+  if (isStandard && dataUrl.length <= 1500000) return dataUrl;
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('image load failed'));
+      el.src = dataUrl;
+    });
+    const maxDim = 1800;
+    let w = img.naturalWidth || img.width || 0;
+    let h = img.naturalHeight || img.height || 0;
+    if (!w || !h) return dataUrl;
+    if (w > maxDim || h > maxDim) {
+      const ratio = Math.min(maxDim / w, maxDim / h);
+      w = Math.max(1, Math.round(w * ratio));
+      h = Math.max(1, Math.round(h * ratio));
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    const out = canvas.toDataURL('image/jpeg', 0.88);
+    return out && out.length > 500 ? out : dataUrl;
+  } catch (e) {
+    return dataUrl;
+  }
+}
+
 /**
  * 把一段 OCR 出来的文本按「题号」切成多道题。
  * 一张截图里常有 5-10 道题，整段塞进一个条目会导致搜任何关键词都命中同一大块。
@@ -221,8 +308,8 @@ function splitOcrQuestions(text) {
   const lines = raw.split('\n');
   const blocks = [];
   let cur = null;
-  // 题号行： 1. / 1、/ (1) / 第1题 / Q1
-  const QNO = /^\s*(?:\(?\s*(\d{1,3})\s*[.、．)）]|第\s*(\d{1,3})\s*题|Q\s*(\d{1,3}))\s*/i;
+  // 题号行： 1. / 1、/ (1) / 第1题 / Q1 / 1 [AF]
+  const QNO = /^\s*(?:\(?\s*(\d{1,3})\s*[.、．)）:：。]|第\s*(\d{1,3})\s*题|Q\s*(\d{1,3})|(\d{1,3})\s+(?=\[[A-Za-z\u4e00-\u9fa5]+\]|【))/i;
 
   for (const rawLine of lines) {
     const line = String(rawLine).replace(/\u00a0/g, ' ').trimEnd();
@@ -233,17 +320,15 @@ function splitOcrQuestions(text) {
     const m = line.match(QNO);
     if (m) {
       if (cur && cur.lines.join('').trim().length >= 4) blocks.push(cur);
-      cur = { no: m[1] || m[2] || m[3] || '', lines: [line] };
+      cur = { no: m[1] || m[2] || m[3] || m[4] || '', lines: [line] };
     } else if (cur) {
       cur.lines.push(line);
     } else {
-      // 第一行没有题号，先攒着
       cur = { no: '', lines: [line] };
     }
   }
   if (cur && cur.lines.join('').trim().length >= 4) blocks.push(cur);
 
-  // 没有题号可切：按空行分段
   if (blocks.length <= 1) {
     const byBlank = raw.split(/\n\s*\n/).map(x => x.trim()).filter(x => x.length >= 4);
     if (byBlank.length > 1) return byBlank;
@@ -252,37 +337,61 @@ function splitOcrQuestions(text) {
   return blocks.map(b => b.lines.join('\n').trim()).filter(x => x.length >= 4);
 }
 
+/**
+ * 把文档里提取出的图片逐张识别（自动根据设置走视觉模型或本地 OCR），
+ * 支持单张图片中包含多道题，并返回 perImage、questions、engine 统计与 visionError。
+ * @param {string[]} images dataURL 列表
+ * @param {(i:number,total:number)=>void} onProgress
+ */
 export async function ocrDocImages(images, onProgress) {
   const list = Array.isArray(images) ? images : [];
-  if (!list.length) return { text: '', ok: 0, failed: 0 };
+  if (!list.length) return { text: '', perImage: [], ok: 0, failed: 0, questions: 0, visionCount: 0, localCount: 0, visionError: '' };
   const parts = [];
-  let ok = 0, failed = 0, questionCount = 0;
+  const perImage = new Array(list.length).fill('');
+  let ok = 0, failed = 0, questionCount = 0, visionCount = 0, localCount = 0;
+  let visionError = '';
 
   for (let i = 0; i < list.length; i++) {
     if (onProgress) { try { onProgress(i, list.length); } catch (e) { } }
     try {
-      const r = await chrome.runtime.sendMessage({ type: 'ocr-local-text', dataUrl: list[i] });
+      const prepared = await normalizeImageForOcr(list[i]);
+      let r = await chrome.runtime.sendMessage({ type: 'ocr-doc-image', dataUrl: prepared });
+      if (r && r.visionError && !visionError) visionError = r.visionError;
+      if ((!r || !r.ok) && (!r || r.allowFallback !== false)) {
+        if (r && r.error && !visionError) visionError = r.error;
+        r = await chrome.runtime.sendMessage({ type: 'ocr-local-text', dataUrl: prepared });
+      } else if (r && !r.ok && r.error && !visionError) {
+        visionError = r.error;
+      }
       if (r && r.ok && r.text && r.text.trim().length >= 4) {
-        // 一张图里可能有多道题：切开后逐题成段，检索才能定位到具体某道题
-        const pieces = splitOcrQuestions(r.text);
-        if (pieces.length > 1) {
-          pieces.forEach(piece => parts.push(piece));
+        const cleaned = cleanOcrText(r.text);
+        if (cleaned) {
+          const pieces = splitOcrQuestions(cleaned);
+          if (pieces.length > 1) {
+            perImage[i] = pieces.join('\n\n');
+            pieces.forEach(piece => parts.push(piece));
+            questionCount += pieces.length;
+          } else {
+            perImage[i] = cleaned;
+            parts.push(cleaned);
+            questionCount += 1;
+          }
           ok++;
-          questionCount += pieces.length;
+          if (r.engine === 'vision') visionCount++;
+          else localCount++;
         } else {
-          parts.push(r.text.trim());
-          ok++;
-          questionCount += 1;
+          failed++;
         }
       } else {
         failed++;
       }
     } catch (e) {
       failed++;
+      if (!visionError) visionError = String(e && e.message || e);
     }
   }
 
-  return { text: parts.join('\n\n'), ok, failed, questions: questionCount };
+  return { text: parts.join('\n\n'), perImage, ok, failed, questions: questionCount, visionCount, localCount, visionError };
 }
 
 /** 解析单个文件 → {name, size, mime, text, images, warning} */
@@ -292,8 +401,12 @@ export async function parseFile(file) {
   let text = '';
   let extraImages = [];
 
-  if (ext === 'pdf') text = await parsePdf(file);
+  if (ext === 'pdf') { const r = await parsePdf(file); text = r.text; extraImages = r.images || []; }
   else if (ext === 'docx') { const r = await parseDocx(file); text = r.text; extraImages = r.images || []; }
+  else if (IMAGE_EXT.has(ext) || /^image\//.test(file.type || '')) {
+    const dataUrl = await readAsDataUrl(file);
+    if (dataUrl) extraImages = [dataUrl];
+  }
   else if (ext === 'xlsx' || ext === 'xls') text = await parseXlsx(file);
   else if (ext === 'html' || ext === 'htm') text = htmlToText(await readAsText(file));
   else if (ext === 'csv' || ext === 'tsv') text = rowsToText(parseCsv(await readAsText(file)));

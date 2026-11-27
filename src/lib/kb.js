@@ -283,6 +283,33 @@ export async function clearEnrich() {
 
 /* ---------------- 写入 ---------------- */
 
+function resolveEntryOptions(e) {
+  if (e && e.options && typeof e.options === 'object' && Object.keys(e.options).length) {
+    return e.options;
+  }
+  return parseOptionsFromText((e && e.raw) || (e && e.question) || '');
+}
+
+function cleanChoiceAnswerToken(answer) {
+  return String(answer || '')
+    .trim()
+    .replace(/^(?:(?:参考|标准|正确|选项)?答案\s*(?:是|为)?\s*[:：]?\s*)/, '')
+    .replace(/(?:[,，、;；\s]*(?:回答(?:正确|错误)|恭喜答对|您的答案.*|我的答案.*)|[（(]\s*回答(?:正确|错误)\s*[)）]).*$/, '')
+    .trim();
+}
+
+function resolveAnswerText(answer, optionsMap) {
+  const ans = cleanChoiceAnswerToken(answer);
+  const opts = optionsMap || {};
+  const compact = ans.toUpperCase().replace(/[\s,，、;；\/·和与+]/g, '');
+  if (/^[A-H]{1,8}$/.test(compact) && Object.keys(opts).length) {
+    const letters = Array.from(new Set(compact.split('')));
+    const texts = letters.map(L => opts[L]).filter(Boolean);
+    if (texts.length === letters.length) return texts.join('；');
+  }
+  return '';
+}
+
 /** 内部：把已切分好的条目写入索引（新建或追加到已有文档） */
 async function writeEntries(entries, docName, meta) {
   meta = meta || {};
@@ -300,6 +327,11 @@ async function writeEntries(entries, docName, meta) {
     const tf = termFreq(tokens);
     const len = tokens.length || 1;
     totalLen += len;
+    const optsMap = resolveEntryOptions(e);
+    const ansText = e.answerText || resolveAnswerText(e.answer, optsMap);
+    const fpFromOpts = Object.keys(optsMap).length >= 2
+      ? Object.values(optsMap).map(t => String(t || '').trim()).filter(Boolean).length >= 2
+      : false;
     rows.push({
       id,
       docId,
@@ -307,10 +339,12 @@ async function writeEntries(entries, docName, meta) {
       type: e.type || 'qa',
       question: e.question,
       answer: e.answer,
+      answerText: ansText,
+      options: Object.keys(optsMap).length ? optsMap : undefined,
       explain: e.explain || '',
       raw: e.raw,
       key: normalizeQuestion(e.question),
-      optFp: e.optFp || optionsFingerprint(e.raw || e.question),
+      optFp: e.optFp || optionsFingerprint(e.raw || e.question) || (fpFromOpts ? optionsFingerprint(Object.entries(optsMap).map(([k, v]) => `${k}. ${v}`).join('\n')) : ''),
       len
     });
     tf.forEach((n, t) => {
@@ -382,8 +416,14 @@ export async function addEntries(list, docName) {
     if (!question || !answer) continue;
     const key = normalizeQuestion(question);
     if (!key) continue;
-    const rawFull = String(raw.raw || (question + '\n答案：' + answer)).slice(0, 1800);
-    const fp = optionsFingerprint(rawFull);
+    const rawFull = String(raw.raw || (question + '\n答案：' + answer)).slice(0, 2400);
+    const optsMap = (raw.options && typeof raw.options === 'object' && Object.keys(raw.options).length)
+      ? raw.options
+      : parseOptionsFromText(rawFull);
+    const ansText = raw.answerText || resolveAnswerText(answer, optsMap);
+    const fp = optionsFingerprint(rawFull) || (Object.keys(optsMap).length
+      ? optionsFingerprint(Object.entries(optsMap).map(([k, v]) => `${k}. ${v}`).join('\n'))
+      : '');
 
     const exist = await new Promise((resolve, reject) => {
       const tx = db.transaction('entries', 'readonly');
@@ -394,13 +434,16 @@ export async function addEntries(list, docName) {
 
     const sameVariant = (exist || []).find(x => !fp || !x.optFp || x.optFp === fp);
     if (sameVariant) {
-      if (String(sameVariant.answer || '').trim() === answer) {
+      if (String(sameVariant.answer || '').trim() === answer &&
+          (!Object.keys(optsMap).length || (sameVariant.options && Object.keys(sameVariant.options).length))) {
         duplicated++;
         continue;
       }
       sameVariant.answer = answer.slice(0, 1200);
       sameVariant.raw = rawFull;
       sameVariant.optFp = fp || sameVariant.optFp || '';
+      if (Object.keys(optsMap).length) sameVariant.options = optsMap;
+      if (ansText) sameVariant.answerText = ansText;
       updatedRows.push(sameVariant);
       continue;
     }
@@ -409,6 +452,8 @@ export async function addEntries(list, docName) {
       type: raw.type || 'qa',
       question: question.slice(0, 600),
       answer: answer.slice(0, 1200),
+      answerText: ansText,
+      options: Object.keys(optsMap).length ? optsMap : undefined,
       raw: rawFull,
       optFp: fp
     });
@@ -550,15 +595,22 @@ export async function listEntries(opts) {
   });
 
   const total = rows.length;
-  const page = rows.slice(offset, offset + limit).map(e => ({
-    id: e.id,
-    n: e.n || null,
-    type: e.type || 'qa',
-    question: String(e.question || '').slice(0, 300),
-    answer: String(e.answer || '').slice(0, 200),
-    docName: e.docName || '',
-    hasOptions: !!(e.optFp && e.optFp.split('|').length >= 2)
-  }));
+  const page = rows.slice(offset, offset + limit).map(e => {
+    const optsMap = resolveEntryOptions(e);
+    const ansText = e.answerText || resolveAnswerText(e.answer, optsMap);
+    const cleanAns = cleanChoiceAnswerToken(e.answer) || String(e.answer || '');
+    return {
+      id: e.id,
+      n: e.n || null,
+      type: e.type || 'qa',
+      question: String(e.question || '').slice(0, 300),
+      answer: cleanAns.slice(0, 200),
+      answerText: String(ansText || '').slice(0, 200),
+      options: Object.keys(optsMap).length ? optsMap : null,
+      docName: e.docName || '',
+      hasOptions: !!(Object.keys(optsMap).length >= 2 || (e.optFp && e.optFp.split('|').length >= 2))
+    };
+  });
 
   return { total, offset, limit, rows: page, all: all.length };
 }
@@ -766,13 +818,22 @@ function extractExplainFromRaw(raw) {
 }
 
 function resolveKbAnswerDetail(entry) {
-  const ans = String(entry.answer || '').trim();
-  const kbOpts = parseOptionsFromText(entry.raw || '');
+  const ans = cleanChoiceAnswerToken(entry.answer || '');
+  const kbOpts = resolveEntryOptions(entry);
   const optKeys = Object.keys(kbOpts).sort();
-  if (!optKeys.length) return { optListText: '', answerDetail: ans };
+  const compact = ans.toUpperCase().replace(/[\s,，、;；\/·和与+]/g, '');
+
+  if (!optKeys.length) {
+    if (/^[A-H]{1,8}$/.test(compact)) {
+      return {
+        optListText: '',
+        answerDetail: `原题记录字母「${compact}」（⚠️ 该条目未保存选项文字，当前考题选项可能已打乱，严禁直接照抄字母「${compact}」，请依据题干、解析或学科原理核对【本题选项】文字后作答！）`
+      };
+    }
+    return { optListText: '', answerDetail: ans };
+  }
 
   const optListText = optKeys.map(k => `${k}. ${kbOpts[k]}`).join(' ｜ ');
-  const compact = ans.toUpperCase().replace(/[\s,，、;；\/·和与+]/g, '');
   if (/^[A-H]{1,8}$/.test(compact)) {
     const letters = Array.from(new Set(compact.split('')));
     const texts = letters.map(L => kbOpts[L]).filter(Boolean);

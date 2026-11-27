@@ -765,13 +765,18 @@ var qxOverlay = (function () {
       })
       .filter(Boolean);
 
-    // 判断题给的是「对/错」，按文本反查对应选项
+    // 判断题给的是「对/错」，按文本或极性反查对应选项
     if (!lines.length) {
       const a = answer.replace(/[。.\s，,]/g, '');
       if (a) {
+        const isTrue = /^(对|正确|是|真|√|✓|✔|T|True|Y|Yes)$/i.test(a);
+        const isFalse = /^(错|错误|否|假|×|✗|✘|X|F|False|No|N)$/i.test(a);
         const hit = opts.find(x => {
           const t = String(x.text || '').replace(/[。.\s，,]/g, '');
-          return t && (t.includes(a) || a.includes(t));
+          if (t && (t.includes(a) || a.includes(t))) return true;
+          if (isTrue && /^(对|正确|是|真|√|✓|✔|T|True|Y|Yes|正确选项)$/i.test(t)) return true;
+          if (isFalse && /^(错|错误|否|假|×|✗|✘|X|F|False|No|N|错误选项)$/i.test(t)) return true;
+          return false;
         });
         if (hit) lines.push(hit.label + '. ' + hit.text);
       }

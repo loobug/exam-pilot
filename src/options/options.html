@@ -82,8 +82,10 @@
   .kbbrowse-list{max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px}
   .kbrow{padding:8px 10px;border:1px solid #1e2836;border-radius:8px;background:#0f151d}
   .kbrow-q{font-size:12.5px;color:#dbe6f2;line-height:1.5}
+  .kbrow-opts{font-size:11.5px;color:#8b98a9;margin-top:3px;line-height:1.45}
   .kbrow-a{font-size:11.5px;color:#7d8ea3;margin-top:3px}
   .kbrow-a b{color:#3fb950}
+  .kbrow-warn{color:#f0883e;font-size:11px;margin-left:6px}
   .kbrow-meta{font-size:11px;color:#5d6b7d;margin-top:2px}
   .kbbrowse-pager{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:10px;font-size:12px;color:#8b98a9}
   .kbbrowse-empty{font-size:12px;color:#6b7688;padding:14px 0;text-align:center}
@@ -147,7 +149,7 @@
       </div>
       <div class="field">
         <label><input type="checkbox" id="ocrDocImages" /> 导入文档时识别其中的图片</label>
-        <div class="hint" style="margin-top:6px">docx 里的题目、表格、截图会先用本地 OCR 转成文字一起入库，关掉则只取正文文字。</div>
+        <div class="hint" style="margin-top:6px">docx / 扫描版 PDF / 图片里的多道题目与表格会自动识别并逐题切分入库（有视觉模型按“图片题识别方式”优先使用视觉，否则用本地 OCR），关掉则只取正文文字。</div>
       </div>
       <div class="field">
         <label><input type="checkbox" id="autoSaveAnswers" /> 每答完题自动保存到本地</label>
@@ -162,10 +164,10 @@
 
     <div class="drop" id="kbDrop">
       <b>点击选择文件</b> 或把文件拖到这里（支持多选）
-      <div class="hint">txt / md / csv / tsv / json / pdf / docx / xlsx / html</div>
+      <div class="hint">txt / md / csv / tsv / json / pdf / docx / xlsx / html / png / jpg / webp</div>
     </div>
     <input type="file" id="kbFile" multiple hidden
-           accept=".txt,.md,.markdown,.csv,.tsv,.json,.pdf,.docx,.xlsx,.xls,.html,.htm,.log" />
+           accept=".txt,.md,.markdown,.csv,.tsv,.json,.pdf,.docx,.xlsx,.xls,.html,.htm,.log,.png,.jpg,.jpeg,.webp,.bmp,.gif" />
 
     <div class="kbprog" id="kbProgress" style="display:none">
       <div class="fill"></div><span></span>
@@ -382,7 +384,8 @@
 
   <div class="bar">
     <button class="primary" id="save">保存设置</button>
-    <button id="test">测试连接</button>
+    <button id="test" type="button">测试连接</button>
+    <button id="testVision" type="button" title="生成带随机数字的测试图，验证模型是否真的支持看图">测试视觉</button>
     <button class="ghost" id="reset">恢复默认</button>
     <div class="status" id="status"></div>
   </div>

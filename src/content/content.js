@@ -1024,19 +1024,22 @@
           });
           continue;
         }
-        const refs = matchOptionElements(r.options || []);
-        list.push({
-          index: list.length,
-          kind: r.kind,
-          stem: r.stem,
-          options: (r.options || []).map(o => ({ label: o.label, text: o.text })),
-          blanks: 0,
-          source: 'image',
-          score: 0.9,
-          frameId: 0,
-          frameIndex: i,
-          refs: refs.length ? { options: refs, container: img.el, blanks: [] } : null,
-          imageDataUrl: null
+        const items = (Array.isArray(r.questions) && r.questions.length) ? r.questions : [r];
+        items.forEach((item, qIdx) => {
+          const refs = matchOptionElements(item.options || []);
+          list.push({
+            index: list.length,
+            kind: item.kind,
+            stem: item.stem,
+            options: (item.options || []).map(o => ({ label: o.label, text: o.text })),
+            blanks: 0,
+            source: 'image',
+            score: 0.9,
+            frameId: 0,
+            frameIndex: i * 100 + qIdx,
+            refs: refs.length ? { options: refs, container: img.el, blanks: [] } : null,
+            imageDataUrl: null
+          });
         });
       } catch (e) {
         failed++;
@@ -1135,15 +1138,18 @@
     const r = state.results.get(index);
     if (!q || !r) { ui.toast("先解题再存库"); return; }
     const optsText = (q.options || []).map(o => o.label + ". " + o.text).join("\n");
-    const question = q.stem + (optsText ? "\n" + optsText : "");
+    const optsMap = {};
+    (q.options || []).forEach(o => { if (o && o.label && o.text) optsMap[o.label] = o.text; });
+    const fullBlock = q.stem + (optsText ? "\n" + optsText : "");
     ui.status("存入知识库…", "busy");
     const res = await send({
       type: "kbAdd",
       entries: [{
         type: "qa",
-        question,
+        question: q.stem,
+        options: optsMap,
         answer: String(r.answer || ""),
-        raw: question + "\n答案：" + r.answer
+        raw: fullBlock + "\n答案：" + r.answer
       }]
     });
     ui.status("就绪", "");

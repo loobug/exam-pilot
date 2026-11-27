@@ -103,7 +103,10 @@ const KB_SYSTEM_ADDON = `
 
 function buildUserText(q, pageTitle, kbText) {
   const parts = [];
-  parts.push('【题型】' + (KIND_TEXT[q.kind] || q.kind || '未知'));
+  const kindDesc = (!q.kind || q.kind === 'auto')
+    ? '未标注题型（若选项为对/错、正确/错误则为判断题；否则请自行判断是单选还是多选，多选题务必在 type 填 "multi" 并给出全部正确字母）'
+    : (KIND_TEXT[q.kind] || q.kind);
+  parts.push('【题型】' + kindDesc);
   if (q.blanks > 1) parts.push('【空格数】' + q.blanks);
   parts.push('【题干】\n' + String(q.stem || '').trim());
   if (q.options && q.options.length) {
@@ -278,7 +281,11 @@ function safeJson(text) {
  * 绝不把技术名词里的字母（如 "B+树"、"C语言"、"TCP"、"AD域"）误当成选项字母。
  */
 function pureAnswerLetters(answer) {
-  const s = String(answer || '').trim();
+  const s = String(answer || '')
+    .trim()
+    .replace(/^(?:(?:参考|标准|正确|选项)?答案\s*(?:是|为)?\s*[:：]?\s*)/, '')
+    .replace(/(?:[,，、;；\s]*(?:回答(?:正确|错误)|恭喜答对|您的答案.*|我的答案.*)|[（(]\s*回答(?:正确|错误)\s*[)）]).*$/, '')
+    .trim();
   if (!s) return [];
   const m = s.match(/^(?:选|选项|答案\s*[:：]?)?\s*([A-Ha-h](?:[\s,，、;；\/·和与+]*[A-Ha-h]){0,7})\s*(?:[（(][^）)]{1,16}[)）])?[。.!！]?$/);
   if (!m) return [];
@@ -323,10 +330,24 @@ function normalizeResult(raw, q) {
     if (!reasoning) reasoning = text;
     confidence = null;
   }
+  if (Array.isArray(answer)) {
+    const arr = answer.map(x => String(x == null ? '' : x).trim()).filter(Boolean);
+    answer = kind === 'fill' ? arr.join(' | ') : arr.join('');
+  }
   answer = typeof answer === 'string' ? answer.trim() : JSON.stringify(answer);
   if (!Number.isFinite(confidence)) confidence = null;
 
-  answer = normalizeAnswer(answer, kind);
+  if (!kind || kind === 'auto') {
+    const t = answer.replace(/[。.\s，,（）()]/g, '');
+    if (/^(对|正确|是|真|√|✓|✔|错|错误|否|假|×|✗|✘)$/i.test(t)) kind = 'judge';
+    else {
+      const ls = lettersOf(answer);
+      if (ls.length > 1) kind = 'multi';
+      else if (ls.length === 1) kind = 'single';
+    }
+  }
+
+  answer = normalizeAnswer(answer, kind, q);
 
   const reasonStr = String(reasoning || '').trim();
   const usedKb = obj.used_kb === false ? false
@@ -342,7 +363,7 @@ function normalizeResult(raw, q) {
   };
 }
 
-function normalizeAnswer(answer, kind) {
+function normalizeAnswer(answer, kind, q) {
   let a = String(answer == null ? '' : answer).trim();
   if (!a) return a;
   if (kind === 'single' || kind === 'multi') {
@@ -351,11 +372,24 @@ function normalizeAnswer(answer, kind) {
     return a;
   }
   if (kind === 'judge') {
+    const paren = a.match(/[（(]\s*(对|错|正确|错误|是|否|真|假|√|×|✓|✗|✔|✘|True|False|T|F)\s*[)）]/i);
+    if (paren) {
+      const v = normalizeAnswerText(paren[1]);
+      if (v === '对' || v === '错') return v;
+    }
     const t = a.replace(/[。.\s，,（）()]/g, '');
-    if (/^(对|正确|是|真|√|✓|✔|T|True|Yes|Y)$/i.test(t)) return "对";
-    if (/^(错|错误|否|假|×|✗|✘|X|F|False|No|N)$/i.test(t)) return "错";
+    if (/^(对|正确|是|真|√|✓|✔|T|True|Yes|Y|正确选项)$/i.test(t)) return "对";
+    if (/^(错|错误|否|假|×|✗|✘|X|F|False|No|N|错误选项)$/i.test(t)) return "错";
     const ls = pureAnswerLetters(a);
-    if (ls.length) return ls[0] === 'A' ? '对' : '错';
+    if (ls.length) {
+      const opts = (q && q.options) || [];
+      const hit = opts.find(o => o.label === ls[0]);
+      if (hit) {
+        const mapped = normalizeAnswerText(hit.text);
+        if (mapped === '对' || mapped === '错') return mapped;
+      }
+      return ls[0] === 'A' ? '对' : '错';
+    }
   }
   return a;
 }
@@ -399,7 +433,7 @@ async function warmupKb(force) {
 
 function cacheKeyOf(q) {
   const stemKey = normalizeQuestion(q.stem || "");
-  const optKey = (q.options || []).map(o => String(o.text || "").slice(0, 30)).join("|");
+  const optKey = (q.options || []).map(o => String(o.text || "").slice(0, 80)).join("|");
   return hashStr(stemKey + "##" + optKey + "##" + (q.kind || ""));
 }
 
@@ -499,7 +533,14 @@ function samePolarity(stemA, stemB) {
   return negA === negB;
 }
 
-/** 从知识库条目的原始文本里解析出「字母 → 选项文本」 */
+/** 获取知识库条目的「字母 → 选项文本」映射（优先读结构化 options 字段，否则从 raw 解析） */
+function getEntryOptions(entry) {
+  if (entry && entry.options && typeof entry.options === 'object' && Object.keys(entry.options).length) {
+    return entry.options;
+  }
+  return parseOptionsFromText((entry && entry.raw) || (entry && entry.question) || '');
+}
+
 function parseKbOptions(raw) {
   return parseOptionsFromText(raw);
 }
@@ -508,16 +549,27 @@ function optKey(t) {
   return normOptionText(t);
 }
 
-/** 计算两段选项文本的词元 Dice 相似度（应对轻微措辞增删） */
+const OPT_NEG_RE = /(?:^|[^a-z])(不|非|无|未|禁止|不得|不能|不可|无需|无关|除外|以外|没有|不是|不属于|不包括)(?![a-z])/;
+function extractNums(t) {
+  return (String(t || '').match(/\d+(?:\.\d+)?/g) || []).join(',');
+}
+
+/** 计算两段选项文本的相似度（严防数字差异「15天↔5天」或正反极性「支持↔不支持」误匹配） */
 function optionSimilarity(textA, textB) {
   const kA = optKey(textA);
   const kB = optKey(textB);
   if (!kA || !kB) return 0;
   if (kA === kB) return 1;
+
+  // 数字或否定极性不一致时，禁止模糊/包含匹配把错误选项认成同一项
+  if (OPT_NEG_RE.test(String(textA || '')) !== OPT_NEG_RE.test(String(textB || ''))) return 0;
+  const nA = extractNums(textA), nB = extractNums(textB);
+  if ((nA || nB) && nA !== nB) return 0;
+
   const minLen = Math.min(kA.length, kB.length);
   const maxLen = Math.max(kA.length, kB.length);
   if (minLen >= 3 && (kA.includes(kB) || kB.includes(kA))) {
-    return Math.max(0.82, minLen / maxLen);
+    return 0.82 + 0.16 * (minLen / maxLen);
   }
   const tA = uniqTokens(tokenize(textA));
   const tB = new Set(uniqTokens(tokenize(textB)));
@@ -556,7 +608,7 @@ function matchPageOption(targetText, pageOpts, usedLabels) {
 
 /** 知识库条目与当前页面选项的重合度（0~1） */
 function optionOverlap(q, entry) {
-  const kbVals = Object.values(parseKbOptions(entry.raw)).filter(Boolean);
+  const kbVals = Object.values(getEntryOptions(entry)).filter(Boolean);
   const pageOpts = q.options || [];
   if (!kbVals.length || !pageOpts.length) return 0;
   const used = new Set();
@@ -577,21 +629,21 @@ function resolveJudgeFromEntry(entry) {
   if (!rawAns) return null;
 
   // 1) 括号内显式写了正误，如 "A（正确）" / "B(错误)"
-  const paren = rawAns.match(/[（(]\s*(对|错|正确|错误|是|否|真|假|√|×|✓|✗|True|False)\s*[)）]/i);
+  const paren = rawAns.match(/[（(]\s*(对|错|正确|错误|是|否|真|假|√|×|✓|✗|✔|✘|True|False)\s*[)）]/i);
   if (paren) {
     const v = normalizeAnswerText(paren[1]);
     if (v === '对' || v === '错') return v;
   }
 
-  // 2) 答案本身就是正误词
-  const direct = normalizeAnswerText(rawAns);
+  // 2) 答案本身就是正误词（含 "对（A）"、"正确。" 等情况）
+  const direct = normalizeAnswerText(rawAns.replace(/[（(]\s*[A-Ha-h]\s*[)）]/g, ''));
   if (direct === '对' || direct === '错') return direct;
 
   // 3) 答案是选项字母（A/B），反查题库原题中该字母对应的文字
   const ls = pureAnswerLetters(rawAns);
   if (ls.length === 1) {
     const L = ls[0];
-    const kbOpts = parseKbOptions(entry.raw);
+    const kbOpts = getEntryOptions(entry);
     if (kbOpts[L]) {
       const mapped = normalizeAnswerText(kbOpts[L]);
       if (mapped === '对' || mapped === '错') return mapped;
@@ -615,7 +667,7 @@ function remapKbAnswer(q, entry) {
   if (!rawAns || !pageOpts.length) return null;
 
   const letters = pureAnswerLetters(rawAns);
-  const kbOpts = parseKbOptions(entry.raw);
+  const kbOpts = getEntryOptions(entry);
   const hasKbOpts = Object.keys(kbOpts).length > 0;
 
   // 路径 A：题库答案是选项字母且题库包含选项文本
@@ -863,15 +915,59 @@ async function ocrLocalText(dataUrl) {
   return { text: r.text || '', ms: r.ms || 0 };
 }
 
-const OCR_PROMPT = '这是考试题目的截图。请完整、逐字地识别图中的题目，只输出一个 JSON 对象，不要解释、不要作答：\n' +
-  '{"stem":"题干原文（含题号可省略）","kind":"single|multi|judge","options":[{"label":"A","text":"选项原文"}]}\n' +
+const OCR_PROMPT = '这是考试题目的截图。请完整、逐字地识别图中的全部题目（图中可能包含一道或多道题），只输出一个 JSON 对象，不要解释、不要作答：\n' +
+  '{"questions":[{"stem":"题干原文（含题号可省略）","kind":"single|multi|judge|fill","options":[{"label":"A","text":"选项原文"}]}]}\n' +
   '要求：\n' +
-  '- 逐字识别，不要改写、不要总结、不要给出答案\n' +
+  '- 逐字识别每一道题，不要漏题，不要只识别第一道\n' +
+  '- 不要改写、不要总结、不要给出答案\n' +
   '- 选项按图中顺序输出，label 用 A/B/C/D…\n' +
-  '- 判断题的选项就是「正确 / 错误」\n' +
-  '- 如果图中是多道题，只识别第一道';
+  '- 判断题的选项就是「正确 / 错误」';
 
-/** 把一张题目图片识别成 {stem, kind, options} */
+const DOC_IMAGE_OCR_PROMPT = '这是题库或讲义文档中的图片，里面可能包含**多道题目**、表格题库或知识点。请完整、逐字地识别图中的全部内容，不要漏掉任何一题。\n' +
+  '要求：\n' +
+  '1. 如果是选择题/判断题/填空题/简答题，请严格按以下纯文本格式**逐题**输出，每道题之间空一行：\n' +
+  '1. 题干原文\n' +
+  'A. 选项原文\n' +
+  'B. 选项原文\n' +
+  '答案：B（如果图中有答案、勾选题标或解析请写出；若图底有「正确答案是 A，回答正确/错误」等练习反馈，只写「答案：A」并去掉「回答正确/错误」等反馈词；图中没有答案则不要编造，省略答案行）\n' +
+  '解析：...（如有）\n' +
+  '2. 如果是表格题库，请把每一行拆成上述独立题号格式输出。\n' +
+  '3. 如果是纯知识点笔记/概念列表，请按原结构逐条清晰整理为纯文本。\n' +
+  '4. 只输出整理后的纯文本内容，不要代码块围栏（```）或多余说明。';
+
+/** 用视觉模型识别文档图片里的全部内容（支持一图多题） */
+async function ocrDocImage(settings, dataUrl) {
+  const vision = String(settings.visionModel || settings.model || '').trim();
+  if (!vision) throw new Error('未配置视觉模型');
+  const t0 = Date.now();
+  const messages = [
+    { role: 'system', content: '你是精准的题库与文档图像转录引擎，只忠实转录图中的全部题目和知识点，不漏题、不编造未出现的答案。' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: DOC_IMAGE_OCR_PROMPT },
+        { type: 'image_url', image_url: { url: dataUrl } }
+      ]
+    }
+  ];
+  messages.__model = vision;
+
+  const raw = await streamChat({
+    settings: Object.assign({}, settings, {
+      maxTokens: Math.min(4096, Math.max(1200, Number(settings.maxTokens) || 2400)),
+      temperature: 0
+    }),
+    messages,
+    jsonMode: false,
+    onDelta: () => { }
+  });
+
+  const text = String(raw || '').replace(/^```(?:\w+)?\s*/i, '').replace(/```\s*$/, '').trim();
+  if (!text || text.length < 4) throw new Error('视觉模型未返回有效文本');
+  return { text, ms: Date.now() - t0, model: vision };
+}
+
+/** 把一张题目图片识别成 {questions:[{stem, kind, options}], stem, kind, options} */
 async function ocrQuestionImage(settings, dataUrl) {
   const vision = String(settings.visionModel || settings.model || '').trim();
   if (!vision) throw new Error('未配置视觉模型，无法识别图片题');
@@ -889,7 +985,7 @@ async function ocrQuestionImage(settings, dataUrl) {
 
   const raw = await streamChat({
     settings: Object.assign({}, settings, {
-      maxTokens: Math.min(1200, Math.max(400, Number(settings.maxTokens) || 1200)),
+      maxTokens: Math.min(2400, Math.max(600, Number(settings.maxTokens) || 1600)),
       temperature: 0
     }),
     messages,
@@ -902,21 +998,27 @@ async function ocrQuestionImage(settings, dataUrl) {
   let obj;
   try { obj = JSON.parse(m[0]); } catch (err) { throw new Error('题目结构不是合法 JSON'); }
 
-  const stem = String(obj.stem || '').replace(/\s+/g, ' ').trim();
-  if (!stem || stem.length < 4) throw new Error('识别出的题干太短');
-
-  const opts = (Array.isArray(obj.options) ? obj.options : [])
-    .map((o, i) => ({
-      label: String((o && o.label) || String.fromCharCode(65 + i)).toUpperCase().slice(0, 1),
-      text: String((o && o.text) || '').trim()
-    }))
-    .filter(o => o.text);
-
-  let kind = String(obj.kind || '').trim();
-  if (!['single', 'multi', 'judge', 'fill'].includes(kind)) {
-    kind = opts.length === 2 ? 'judge' : 'single';
+  const rawList = Array.isArray(obj.questions) && obj.questions.length ? obj.questions : [obj];
+  const questions = [];
+  for (const item of rawList) {
+    if (!item || typeof item !== 'object') continue;
+    const stem = String(item.stem || '').replace(/\s+/g, ' ').trim();
+    if (!stem || stem.length < 4) continue;
+    const opts = (Array.isArray(item.options) ? item.options : [])
+      .map((o, i) => ({
+        label: String((o && o.label) || String.fromCharCode(65 + i)).toUpperCase().slice(0, 1),
+        text: String((o && o.text) || '').trim()
+      }))
+      .filter(o => o.text);
+    let kind = String(item.kind || '').trim();
+    if (!['single', 'multi', 'judge', 'fill'].includes(kind)) {
+      kind = opts.length === 2 ? 'judge' : (opts.length ? 'single' : 'short');
+    }
+    questions.push({ stem, kind, options: opts });
   }
-  return { stem, kind, options: opts, model: vision };
+  if (!questions.length) throw new Error('识别出的题干太短');
+  const first = questions[0];
+  return { questions, stem: first.stem, kind: first.kind, options: first.options, model: vision };
 }
 
 
@@ -981,25 +1083,33 @@ function canDirectAnswerFromKb(q, top, settings, conflict) {
     return { ok: false, reason: 'judge-unresolvable' };
   }
 
-  // 单选 / 多选题：优先走选项文本重映射
+  const kbOpts = getEntryOptions(e);
+  const kbOptCount = Object.keys(kbOpts).length;
+
+  // 题库有选项文本时，必须先核对选项集合整体重合度 ≥ 0.5，防止只碰巧对上 1 个选项就套错变体题
+  if (kbOptCount >= 2 && pageOpts.length >= 2) {
+    const ov = optionOverlap(q, e);
+    if (ov < 0.5) {
+      return { ok: false, reason: 'options-low-overlap' };
+    }
+  }
+
+  // 单选 / 多选题：必须基于选项内容重映射后才能直答，绝不盲信未核对的 A/B/C/D 字母
   const mapped = remapKbAnswer(q, e);
   if (mapped && mapped.letters) {
-    const ans = q.kind === 'single' ? mapped.letters[0] : mapped.letters;
+    const ans = effKind === 'single' ? mapped.letters[0] : mapped.letters;
     return { ok: true, answer: ans, mapped };
   }
 
   // 题库本身记录了选项，但与当前页面的选项无法映射 → 同题干不同选项的变体题，绝不盲填原字母
-  const kbOpts = parseKbOptions(e.raw);
-  if (Object.keys(kbOpts).length > 0) {
+  if (kbOptCount > 0) {
     return { ok: false, reason: 'options-mismatch' };
   }
 
-  // 题库仅存了「题干 + 纯字母答案」（未存选项文本）：精确命中且字母合法时允许采用
+  // 题库未存选项文字且答案仅为 A/B/C/D 字母：选项顺序可能已打乱，禁止盲选字母，交由模型核对选项内容
   const pureLs = pureAnswerLetters(rawAns);
-  const pageLabels = new Set(pageOpts.map(o => o.label));
-  if (top.exact && pureLs.length && pureLs.every(l => pageLabels.has(l))) {
-    const ans = q.kind === 'single' ? pureLs[0] : pureLs.join('');
-    return { ok: true, answer: ans, unmappedNotice: true };
+  if (pureLs.length) {
+    return { ok: false, reason: 'kb-missing-options' };
   }
 
   return { ok: false, reason: 'unresolvable-choice' };
@@ -1140,16 +1250,33 @@ function fromKb(q, hits, directInfo) {
   const resolved = directInfo && directInfo.ok ? directInfo : canDirectAnswerFromKb(q, top, {});
   const mapped = (resolved && resolved.mapped) || remapKbAnswer(q, e);
 
+  let effKind = (q.kind && q.kind !== 'auto' && q.kind !== 'page') ? q.kind : inferEffectiveKind(q);
   let answer;
   if (resolved && resolved.answer != null) {
-    answer = normalizeAnswer(resolved.answer, q.kind);
-  } else if (q.kind === 'judge') {
-    answer = resolveJudgeFromEntry(e) || normalizeAnswer(rawAnswer, 'judge');
+    const rawResolved = String(resolved.answer).trim();
+    if (effKind !== 'judge' && (rawResolved === '对' || rawResolved === '错')) effKind = 'judge';
+    if ((!q.kind || q.kind === 'auto' || q.kind === 'page') && effKind === 'multi') {
+      const ls = lettersOf(rawResolved);
+      if (ls.length === 1) effKind = 'single';
+    }
+    answer = normalizeAnswer(rawResolved, effKind, q);
+  } else if (effKind === 'judge') {
+    answer = resolveJudgeFromEntry(e) || normalizeAnswer(rawAnswer, 'judge', q);
   } else {
-    answer = normalizeAnswer(mapped ? mapped.letters : rawAnswer, q.kind);
+    const candidate = mapped ? mapped.letters : rawAnswer;
+    if ((!q.kind || q.kind === 'auto' || q.kind === 'page') && effKind === 'multi') {
+      const ls = lettersOf(candidate);
+      if (ls.length === 1) effKind = 'single';
+    }
+    answer = normalizeAnswer(candidate, effKind, q);
   }
 
   const origLetters = pureAnswerLetters(rawAnswer).join('');
+  const mappedLine = mapped && mapped.letters
+    ? (mapped.letters !== origLetters
+      ? '选项重映射：' + rawAnswer.slice(0, 30) + ' → ' + mapped.letters + (mapped.texts.length ? '（' + mapped.texts.join('；') + '）' : '')
+      : (mapped.texts && mapped.texts.length ? '选项内容已核对：' + mapped.letters + '（' + mapped.texts.join('；') + '）' : ''))
+    : '';
   const reasoning = [
     '【知识库命中】' + e.docName + (e.type === 'term' ? '（术语条目）' : '（题库条目）'),
     top.exact ? '题干精确匹配' : ('相关度 ' + Math.round((top.coverage || 0) * 100) + '%（BM25 ' + Math.round(top.score) + '）'),
@@ -1157,9 +1284,7 @@ function fromKb(q, hits, directInfo) {
     '原条目：' + String(e.question || '').slice(0, 300),
     '条目答案：' + rawAnswer.slice(0, 300),
     e.explain ? ('原题解析：' + String(e.explain).slice(0, 260)) : '',
-    mapped && mapped.letters && mapped.letters !== origLetters
-      ? '选项重映射：' + rawAnswer.slice(0, 30) + ' → ' + mapped.letters + (mapped.texts.length ? '（' + mapped.texts.join('；') + '）' : '')
-      : ''
+    mappedLine
   ].filter(Boolean).join('\n');
 
   let notes = top.exact ? '' : '非精确匹配，建议核对';
@@ -1168,7 +1293,7 @@ function fromKb(q, hits, directInfo) {
   }
 
   return {
-    kind: q.kind,
+    kind: effKind || q.kind,
     answer,
     reasoning,
     confidence: top.exact ? 0.99 : 0.9,
@@ -1738,6 +1863,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
             const r = await ocrQuestionImage(st, msg.dataUrl);
             sendResponse({ ok: true, engine: 'vision', ...r });
+          } catch (e) {
+            sendResponse({ ok: false, error: String(e && e.message || e) });
+          }
+          break;
+        }
+        case 'ocr-doc-image': {
+          try {
+            const st = await getSettings();
+            const engine = String(st.ocrEngine || 'auto');
+            const visionExplicit = String(st.visionModel || '').trim();
+            const mainModel = String(st.model || '').trim();
+            const looksMultimodal = /vl|vision|gpt-4o|gpt-4\.1|gpt-5|gemini|claude-3|claude-sonnet-4|claude-opus-4|glm-4v|step-1v/i.test(mainModel);
+            const useVision = engine === 'vision' || (engine === 'auto' && (!!visionExplicit || looksMultimodal));
+            let visionError = '';
+            if (useVision) {
+              try {
+                const r = await ocrDocImage(st, msg.dataUrl);
+                sendResponse({ ok: true, engine: 'vision', ...r });
+                break;
+              } catch (ve) {
+                visionError = String(ve && ve.message || ve);
+                if (engine === 'vision') {
+                  sendResponse({ ok: false, allowFallback: false, error: visionError });
+                  break;
+                }
+              }
+            }
+            const r = await ocrLocalText(msg.dataUrl);
+            sendResponse({ ok: true, engine: 'local', visionError, ...r });
           } catch (e) {
             sendResponse({ ok: false, error: String(e && e.message || e) });
           }

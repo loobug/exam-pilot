@@ -149,13 +149,7 @@ function parseHeaders(raw) {
   } catch (e) { return null; }
 }
 
-async function test() {
-  const s = collect();
-  if (!s.baseUrl) return setStatus('先填 Base URL', 'bad');
-  const extra = parseHeaders(s.extraHeaders);
-  if (extra === null) return setStatus('额外请求头不是合法 JSON', 'bad');
-  setStatus('测试中…', 'warn');
-
+async function sendTestRequest(s, model, messages, maxTokens = 64) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), Math.min(45, s.timeoutSec) * 1000);
   const t0 = Date.now();
@@ -164,34 +158,102 @@ async function test() {
       method: 'POST',
       headers: Object.assign({
         'Content-Type': 'application/json'
-      }, s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}, extra),
+      }, s.apiKey ? { Authorization: 'Bearer ' + s.apiKey } : {}, s.extraHeadersObj),
       body: JSON.stringify({
-        model: s.model,
-        messages: [
-          { role: 'system', content: '你是连接测试助手，只输出 JSON。' },
-          { role: 'user', content: '回复 {"ok":true,"msg":"pong"}' }
-        ],
+        model,
+        messages,
         temperature: 0,
-        max_tokens: 64
+        max_tokens: maxTokens
       }),
       signal: ctrl.signal
     });
     const txt = await res.text();
     const ms = Date.now() - t0;
-    if (!res.ok) {
-      setStatus(`连接失败 ${res.status}（${ms}ms）：` + txt.slice(0, 220), 'bad');
-      return;
-    }
-    let preview = txt.slice(0, 160);
+    if (!res.ok) return { ok: false, status: res.status, ms, text: txt };
+    let content = txt;
     try {
       const j = JSON.parse(txt);
-      preview = (j.choices && j.choices[0] && (j.choices[0].message || {}).content) || j.message || preview;
+      content = (j.choices && j.choices[0] && (j.choices[0].message || {}).content) || j.message || txt;
     } catch (e) { }
-    setStatus(`连接正常 ✓ ${ms}ms｜${String(preview).replace(/\s+/g, ' ').slice(0, 90)}`, 'ok');
+    return { ok: true, ms, text: txt, content: String(content || '') };
   } catch (e) {
-    setStatus('连接异常：' + (e && e.name === 'AbortError' ? '请求超时' : (e.message || e)), 'bad');
+    return { ok: false, error: (e && e.name === 'AbortError' ? '请求超时' : (e.message || e)) };
   } finally {
     clearTimeout(t);
+  }
+}
+
+async function test() {
+  const s = collect();
+  if (!s.baseUrl) return setStatus('先填 Base URL', 'bad');
+  const extra = parseHeaders(s.extraHeaders);
+  if (extra === null) return setStatus('额外请求头不是合法 JSON', 'bad');
+  s.extraHeadersObj = extra;
+  setStatus('测试中…', 'warn');
+
+  const r = await sendTestRequest(s, s.model, [
+    { role: 'system', content: '你是连接测试助手，只输出 JSON。' },
+    { role: 'user', content: '回复 {"ok":true,"msg":"pong"}' }
+  ], 64);
+  if (!r.ok) {
+    setStatus(r.error ? ('连接异常：' + r.error) : `连接失败 ${r.status}（${r.ms}ms）：` + String(r.text || '').slice(0, 220), 'bad');
+    return;
+  }
+  setStatus(`连接正常 ✓ ${r.ms}ms｜${r.content.replace(/\s+/g, ' ').slice(0, 90)}`, 'ok');
+}
+
+function makeVisionTestImage(code) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 260;
+  canvas.height = 96;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+  ctx.fillStyle = '#0f172a';
+  ctx.font = 'bold 46px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(code, canvas.width / 2, canvas.height / 2 + 2);
+  return canvas.toDataURL('image/png');
+}
+
+async function testVision() {
+  const s = collect();
+  if (!s.baseUrl) return setStatus('先填 Base URL', 'bad');
+  const extra = parseHeaders(s.extraHeaders);
+  if (extra === null) return setStatus('额外请求头不是合法 JSON', 'bad');
+  s.extraHeadersObj = extra;
+  const targetModel = String(s.visionModel || s.model || '').trim();
+  if (!targetModel) return setStatus('先填写视觉模型或主模型名称', 'bad');
+  const usingFallback = !String(s.visionModel || '').trim();
+  const code = String(Math.floor(1000 + Math.random() * 9000));
+  const dataUrl = makeVisionTestImage(code);
+  setStatus(`正在测试「${targetModel}」视觉识别能力…`, 'warn');
+
+  const r = await sendTestRequest(s, targetModel, [
+    { role: 'system', content: '你是视觉识别助手，只输出图中看到的数字，不要解释。' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '请识别图片中的 4 位数字，只输出这 4 个数字本身，不要其他文字。' },
+        { type: 'image_url', image_url: { url: dataUrl } }
+      ]
+    }
+  ], 32);
+  if (!r.ok) {
+    setStatus(r.error ? ('视觉测试异常：' + r.error) : `不支持视觉或接口失败 ${r.status}（${r.ms}ms）：` + String(r.text || '').slice(0, 200), 'bad');
+    return;
+  }
+  const cleanOut = r.content.replace(/\s+/g, ' ').trim();
+  const digits = cleanOut.replace(/\D/g, '');
+  if (cleanOut.includes(code) || digits === code) {
+    const tag = usingFallback ? `模型「${targetModel}」（当前文本模型）` : `视觉模型「${targetModel}」`;
+    setStatus(`支持视觉 ✓ ${r.ms}ms｜${tag}准确识别出 ${code}`, 'ok');
+  } else {
+    setStatus(`未通过视觉验证 ⚠ ${r.ms}ms｜图中为 ${code}，模型「${targetModel}」回复：${cleanOut.slice(0, 80)}`, 'bad');
   }
 }
 
@@ -244,7 +306,7 @@ async function fsDel(key) {
   });
 }
 
-const SUPPORTED_EXT = new Set(['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'html', 'htm', 'pdf', 'docx', 'xlsx', 'xls']);
+const SUPPORTED_EXT = new Set(['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'html', 'htm', 'pdf', 'docx', 'xlsx', 'xls', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif']);
 
 async function ensureDirPermission(handle, interactive) {
   if (!handle) return false;
@@ -601,12 +663,29 @@ async function parseFileWithOcr(parse, file, onProgress) {
 
   try {
     const r = await parse.ocrDocImages(imgs, onProgress);
-    if (r.text) {
-      parsed.text = String(parsed.text || '') + '\n\n' + r.text;
-      parsed.ocrImages = r.ok;
-      parsed.ocrFailed = r.failed;
+    const per = Array.isArray(r.perImage) ? r.perImage : [];
+    let docText = String(parsed.text || '');
+    const leftover = [];
+    for (let i = 0; i < imgs.length; i++) {
+      const marker = `[[EXA_IMG_${i}]]`;
+      const imgTxt = per[i] ? `\n\n${per[i]}\n\n` : '';
+      if (docText.includes(marker)) {
+        docText = docText.split(marker).join(imgTxt);
+      } else if (per[i]) {
+        leftover.push(per[i]);
+      }
     }
+    if (leftover.length) {
+      docText = (docText ? docText + '\n\n' : '') + leftover.join('\n\n');
+    }
+    parsed.text = docText.trim();
+    parsed.ocrImages = r.ok;
+    parsed.ocrFailed = r.failed;
+    parsed.ocrVisionCount = r.visionCount || 0;
+    parsed.ocrLocalCount = r.localCount || 0;
+    parsed.ocrVisionError = r.visionError || '';
   } catch (e) {
+    parsed.text = String(parsed.text || '').replace(/\[\[EXA_IMG_\d+\]\]/g, '');
     parsed.ocrError = String(e && e.message || e);
   }
   return parsed;
@@ -644,10 +723,17 @@ async function kbBrowseRender() {
       const n = e.n || (kbBrowseState.offset + i + 1);
       const q = e.question || '(无题干)';
       const a = e.answer || '';
+      const aText = e.answerText || '';
+      const aDisplay = aText && aText !== a ? `${a} · ${aText}` : a;
+      const optKeys = e.options ? Object.keys(e.options).sort() : [];
+      const optsHtml = optKeys.length
+        ? '<div class="kbrow-opts">' + escHtml(optKeys.map(k => `${k}. ${e.options[k]}`).join(' ｜ ')) + '</div>'
+        : (e.type === 'qa' && /^[A-H]{1,8}$/i.test(a) ? '<div class="kbrow-opts"><span class="kbrow-warn">⚠ 仅存字母未存选项原文，打乱选项时将交由 AI 核对</span></div>' : '');
       const typeName = e.type === 'qa' ? '问答' : e.type === 'term' ? '术语' : '原文';
       return '<div class="kbrow">'
         + '<div class="kbrow-q">' + n + '. ' + escHtml(q) + '</div>'
-        + (a ? '<div class="kbrow-a">答案：<b>' + escHtml(a) + '</b></div>' : '')
+        + optsHtml
+        + (aDisplay ? '<div class="kbrow-a">答案：<b>' + escHtml(aDisplay) + '</b></div>' : '')
         + '<div class="kbrow-meta">' + typeName + ' · ' + escHtml(e.docName || '未知来源') + '</div>'
         + '</div>';
     }).join('');
@@ -707,6 +793,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('save').addEventListener('click', save);
   $('test').addEventListener('click', test);
+  if ($('testVision')) $('testVision').addEventListener('click', testVision);
   $('reset').addEventListener('click', async () => {
     fill(DEFAULTS);
     await chrome.storage.local.set({ settings: DEFAULTS });
@@ -902,6 +989,7 @@ async function importFiles(fileList) {
   const kb = await kbModule();
   const failed = [];
   let imported = 0;
+  let ocrSummary = '';
 
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
@@ -913,7 +1001,16 @@ async function importFiles(fileList) {
         setStatus('正在识别「' + f.name + '」中的图片 ' + (i + 1) + '/' + total + '…', 'ok');
       });
       if (parsed.warning) throw new Error(parsed.warning);
-      if (parsed.ocrImages) setStatus('已识别 ' + parsed.ocrImages + ' 张图片', 'ok');
+      if (parsed.ocrImages) {
+        const parts = [];
+        if (parsed.ocrVisionCount) parts.push(`视觉 ${parsed.ocrVisionCount} 张`);
+        if (parsed.ocrLocalCount) parts.push(`本地OCR ${parsed.ocrLocalCount} 张`);
+        if (parsed.ocrVisionError) parts.push(`视觉回退原因：${parsed.ocrVisionError.slice(0, 60)}`);
+        ocrSummary = parts.join('，');
+        setStatus('已识别 ' + parsed.ocrImages + ' 张图片' + (ocrSummary ? '（' + ocrSummary + '）' : ''), parsed.ocrVisionError ? 'warn' : 'ok');
+      } else if (parsed.ocrVisionError) {
+        throw new Error('图片视觉识别失败：' + parsed.ocrVisionError);
+      }
       const res = await kb.addDocument(parsed);
       imported += res.entryCount;
       // 导入后让后台立刻把索引载入内存，第一次检索就是 0ms
@@ -941,7 +1038,7 @@ async function importFiles(fileList) {
   if (failed.length) {
     setStatus(`导入完成，${failed.length} 个文件失败：` + failed.join('；').slice(0, 220), 'bad');
   } else {
-    setStatus(`导入完成 ✓ 新增 ${imported} 条知识`, 'ok');
+    setStatus(`导入完成 ✓ 新增 ${imported} 条知识` + (ocrSummary ? `（${ocrSummary}）` : ''), ocrSummary && /回退/.test(ocrSummary) ? 'warn' : 'ok');
   }
 }
 

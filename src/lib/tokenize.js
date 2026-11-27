@@ -151,18 +151,20 @@ export function normOptionText(t) {
 
 /** 归一化答案文本（含判断题同义词归一：对/正确/√/true → 对，错/错误/×/false → 错） */
 export function normalizeAnswerText(t) {
-  const base = nfkc(t).trim();
-  const clean = base.replace(/[。.，,\s（）()【】\[\]]/g, '');
+  const stripped = nfkc(t)
+    .replace(/^\s*(?:[（(\[]\s*[A-Ha-h]\s*[)）\]]|[A-Ha-h]\s*[.、,，:：)）．\s])\s*/, '')
+    .trim();
+  const clean = stripped.replace(/[。.，,\s（）()【】\[\]]/g, '');
 
   // 先按原样（含 √ / × 之类符号）判断
-  if (/^(对|正确|是|真|√|✓|✔|t|true|yes|y)$/i.test(clean)) return '对';
-  if (/^(错|错误|否|假|×|✗|✘|x|f|false|no|n)$/i.test(clean)) return '错';
+  if (/^(对|正确|是|真|√|✓|✔|t|true|yes|y|正确选项)$/i.test(clean)) return '对';
+  if (/^(错|错误|否|假|×|✗|✘|x|f|false|no|n|错误选项)$/i.test(clean)) return '错';
 
   // 再把 √ / × 这类符号剥掉重试：「正确（√）」「错误（×）」在真实题库里很常见
   const bare = clean.replace(/[√✓✔×✗✘]/g, '');
   if (bare && bare !== clean) {
-    if (/^(对|正确|是|真|t|true|yes|y)$/i.test(bare)) return '对';
-    if (/^(错|错误|否|假|x|f|false|no|n)$/i.test(bare)) return '错';
+    if (/^(对|正确|是|真|t|true|yes|y|正确选项)$/i.test(bare)) return '对';
+    if (/^(错|错误|否|假|x|f|false|no|n|错误选项)$/i.test(bare)) return '错';
   }
 
   return normOptionText(t);
@@ -170,18 +172,27 @@ export function normalizeAnswerText(t) {
 
 /**
  * 从知识库原文本中提取 { A: '选项文本', B: '...' }
- * 兼容换行与同行排布，兼容「A.文本」「A、文本」「A:文本」「(A)文本」「[A]文本」（分隔符后可无空格）
+ * 兼容换行与同行排布，兼容「A.文本」「A、文本」「A:文本」「(A)文本」「[A]文本」「a. 文本」及行首「A 文本」
  */
 export function parseOptionsFromText(raw) {
   const map = {};
   const text = nfkc(raw);
-  const body = text.split(/(?:^|[\s\n])(?:参考答案|正确答案|标准答案|答案|解答|解析|分析|说明|分类|出处|来源)\s*[:：]/)[0] || text;
+  // 先去掉末尾独立「解析/说明/分类/出处」段落，以及行首独立的「答案：X」行（避免「答案」写在选项前面时被截光）
+  const bodyNoTail = text.split(/(?:^|\n)\s*(?:答案解析|试题解析|解析|分析|说明|分类|出处|来源)\s*[:：]/)[0] || text;
+  const cleanedLines = bodyNoTail.split(/\n/).map(line => {
+    const trimmed = line.trim();
+    if (/^(?:【\s*(?:参考|标准|正确)?答案\s*】|\[\s*(?:参考|标准|正确)?答案\s*\]|(?:参考答案|正确答案|标准答案|选项答案|答案|解答|答)\s*(?:[:：]|(?:是|为)\s*(?=[A-Ha-h]|对|错|正确|错误|√|×)))/.test(trimmed)) {
+      return '';
+    }
+    return line.replace(/(?:^|\s)(?:参考答案|正确答案|标准答案|答案)\s*(?:[:：]\s*\S+|(?:是|为)\s*(?=[A-Ha-h]|对|错|正确|错误|√|×)).*$/, '');
+  });
+  const body = cleanedLines.join('\n');
 
-  const markRe = /(?:^|[\s\n。；;？?！!）】\]])(?:[（(\[]\s*([A-H])\s*[)）\]]\s*|([A-H])\s*[.、,，:：)）．]\s*)/g;
+  const markRe = /(?:^|[\s\n。；;？?！!）】\]])(?:[（(\[]\s*([A-Ha-h])\s*[)）\]]\s*|([A-Ha-h])\s*[.、,，:：)）．]\s*)|(?:^|\n)\s*([A-Ha-h])\s+(?=\S)/g;
   const marks = [];
   let m;
   while ((m = markRe.exec(body))) {
-    const label = m[1] || m[2];
+    const label = (m[1] || m[2] || m[3] || '').toUpperCase();
     const leadLen = m[0].length - m[0].replace(/^[\s\n。；;？?！!）】\]]+/, '').length;
     marks.push({
       label,
@@ -196,7 +207,6 @@ export function parseOptionsFromText(raw) {
   for (let i = 0; i < marks.length; i++) {
     if (marks[i].label === 'A' && marks.slice(i).some(x => x.label === 'B')) {
       startIdx = i;
-      break;
     }
   }
 
@@ -204,7 +214,8 @@ export function parseOptionsFromText(raw) {
   for (let i = 0; i < slice.length; i++) {
     const cur = slice[i];
     const end = i + 1 < slice.length ? slice[i + 1].markerStart : body.length;
-    const val = body.slice(cur.textStart, end).replace(/\s+/g, ' ').trim();
+    let val = body.slice(cur.textStart, end).replace(/\s+/g, ' ').trim();
+    val = val.replace(/\s*(?:【\s*(?:参考|标准|正确)?答案\s*】|(?:参考答案|正确答案|标准答案|答案)\s*(?:[:：]|(?:是|为)\s*(?=[A-Ha-h]|对|错|正确|错误|√|×))).*$/, '').trim();
     if (val && !map[cur.label]) map[cur.label] = val.slice(0, 160);
   }
   return map;
