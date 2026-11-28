@@ -380,20 +380,21 @@
 
   /* ---------------- 跟随模式（默认）：翻到新题就自动答这一题，但不翻页 ---------------- */
 
-  const follow = { timer: 0, lastSig: "", busy: false, tries: 0, lastErr: "", lastAt: 0, lastCheck: 0, empty: 0, offUrl: "" };
+  const follow = { timer: 0, lastSig: "", busy: false, tries: 0, lastErr: "", lastAt: 0, lastCheck: 0, empty: 0, offUrl: "", lastUrl: "", fails: new Map(), paused: new Set() };
 
   function followSignature() {
     try {
       // 1) 有题号最可靠
       const s = qxExtract.probeStructure();
       if (s && s.total) return "q" + s.current + "/" + s.total;
-      // 2) 退而求其次：常见题干元素
-      const el = document.querySelector(".qtext,.stem,[class*=stem],[class*=qtext],.q-title,.question-title,h1,h2,h3");
+      // 2) 退而求其次：明确的题干元素（避免误匹配页面静态 h1/h2/h3 标题导致切题后签名不变）
+      const el = document.querySelector(".qtext,.stem,[class*=stem],[class*=qtext],.q-title,.question-title");
       const t = el ? qxUtil.oneLine(el.innerText || "") : "";
-      if (t && t.length >= 4) return "t" + qxUtil.hash(t.slice(0, 80));
-      // 3) 最后兜底：整页可见文本（结构完全陌生时也能感知换题）
+      const inpN = document.querySelectorAll('input[type=radio],input[type=checkbox],textarea').length;
       const body = qxUtil.oneLine((document.body && document.body.innerText) || "");
-      if (body.length >= 20) return "b" + qxUtil.hash(body.slice(0, 600));
+      if (t && t.length >= 4) return "t" + qxUtil.hash(t.slice(0, 80)) + ":" + inpN + ":" + body.length;
+      // 3) 最后兜底：整页可见文本首尾 + 控件数（结构陌生或整卷异步加载都能感知变化）
+      if (body.length >= 20) return "b" + qxUtil.hash(body.slice(0, 500) + "|" + body.slice(-300)) + ":" + inpN;
       return "";
     } catch (e) { return ""; }
   }
@@ -444,16 +445,25 @@
       }
       return;
     }
+    if (follow.lastUrl && follow.lastUrl !== location.href) {
+      follow.offUrl = "";
+      follow.empty = 0;
+      follow.tries = 0;
+      follow.fails.clear();
+      follow.paused.clear();
+    }
+    follow.lastUrl = location.href;
+
     // 这个页面已被判定"没有题"，且没换页 → 不再空转
     if (follow.offUrl && follow.offUrl === location.href) return;
 
-    if (follow.offUrl && follow.offUrl !== location.href) {
-      follow.offUrl = "";
-      follow.empty = 0;
-    }
-
     const sig = followSignature();
     const changed = !!sig && sig !== follow.lastSig;
+    if (changed) {
+      // 切到新题 / 新页面变化：清零连续失败计数，绝不把上一题的失败状态带给新题
+      follow.tries = 0;
+      follow.lastErr = "";
+    }
     const slowDue = Date.now() - (follow.lastCheck || 0) > 2000;   // 签名失效/上次静默失败时的兜底
     if (!changed && !slowDue) return;
 
@@ -477,37 +487,67 @@
       }
       follow.empty = 0;
       follow.lastSig = sig;
-      const pending = usable.filter(x => !state.results.has(x.index));
-      if (!pending.length) return;                                  // 当前题已经有答案，不再重复调用
 
-      // 整卷场景：并发解完「所有」未解题，而不是只做一批就等下一轮
+      const failBump = (q, reason) => {
+        const k = qKey(q);
+        const n = (follow.fails.get(k) || 0) + 1;
+        follow.fails.set(k, n);
+        follow.tries = n;
+        follow.lastErr = reason;
+        if (n <= 3) {
+          follow.lastSig = "";
+          console.info('[exa] 跟随作答未完成（' + reason + '），第 ' + n + ' 次重试');
+        } else {
+          follow.paused.add(k);
+          const r = state.results.get(q.index);
+          if (r) r.__fillState = 'paused';
+          console.warn('[exa] 跟随作答连续失败，暂停这一题：' + reason);
+        }
+      };
+
+      // 先补填「已解出但上次未填上」的题，不让漏填的题永久停留在空白
+      const pendingFill = usable.filter(x => {
+        const r = state.results.get(x.index);
+        if (!r || !r.answer) return false;
+        if (r.__fillState === 'ok' || r.__fillState === 'skipped' || r.__fillState === 'paused') return false;
+        return !follow.paused.has(qKey(x));
+      });
+      for (const q of pendingFill) {
+        await fillIndex(q.index, true);
+        const r = state.results.get(q.index);
+        if (r && (r.__fillState === 'ok' || r.__fillState === 'skipped')) {
+          follow.fails.delete(qKey(q));
+        } else {
+          failBump(q, (r && r.__fillErr) || '填涂未成功');
+        }
+      }
+
+      const pending = usable.filter(x => !state.results.has(x.index) && !follow.paused.has(qKey(x)));
+      if (!pending.length) return;                                  // 当前未暂停的题都已处理完
+
+      // 整卷场景：按并发度分批解完并逐题隔离失败，单题报错绝不阻断后续题目
       const conc = Math.max(1, Math.min(4, Number(state.settings.concurrency) || DEFAULT_CONCURRENCY));
-      let solved = null, filled = false;
-      let first = true;
       for (let at = 0; at < pending.length; at += conc) {
         const batch = pending.slice(at, at + conc);
         const solvedList = await Promise.all(batch.map(q => solveIndex(q.index, {}).catch(() => null)));
         for (let i = 0; i < batch.length; i++) {
-          if (!solvedList[i]) continue;
-          const ok = await fillIndex(batch[i].index, true);
-          if (first) { solved = solvedList[i]; filled = ok; first = false; }
+          const q = batch[i];
+          const k = qKey(q);
+          const sr = solvedList[i];
+          if (!sr) {
+            failBump(q, '解题未返回结果');
+            continue;
+          }
+          await fillIndex(q.index, true);
+          const resObj = state.results.get(q.index) || sr;
+          if (resObj.__fillState === 'ok' || resObj.__fillState === 'skipped') {
+            follow.fails.delete(k);
+            follow.tries = 0;
+            follow.lastErr = "";
+          } else {
+            failBump(q, resObj.__fillErr || '填涂未成功');
+          }
         }
-        if (first === false && at === 0) first = false;
-      }
-
-      if (!solved || !filled) {
-        // 没解出来 / 没填上：允许下一轮再试一次，最多 3 次，避免死循环
-        follow.tries += 1;
-        follow.lastErr = !solved ? '解题未返回结果' : '填涂未成功';
-        if (follow.tries <= 3) {
-          follow.lastSig = "";                                      // 清掉签名 → 下轮重新来
-          console.info('[exa] 跟随作答未完成（' + follow.lastErr + '），第 ' + follow.tries + ' 次重试');
-        } else {
-          console.warn('[exa] 跟随作答连续失败，暂停这一题：' + follow.lastErr);
-        }
-      } else {
-        follow.tries = 0;
-        follow.lastErr = "";
       }
     } catch (e) {
       follow.tries += 1;
@@ -645,7 +685,15 @@
 
   async function doExtract(opts) {
     opts = opts || {};
-    if (opts.force) { follow.offUrl = ""; follow.empty = 0; }   // 手动识别 = 重新试一次
+    if (opts.force) {
+      follow.offUrl = "";
+      follow.empty = 0;
+      if (!opts.silent) {
+        follow.tries = 0;
+        follow.fails.clear();
+        follow.paused.clear();
+      }
+    }   // 手动识别 = 重置并重试
     ui.show();
     ui.status('识别中…', 'busy');
 
@@ -864,6 +912,8 @@
     });
     const rep = res && res.ok && res.reports && res.reports[0];
     if (rep && rep.stale) {
+      r.__fillState = 'fail';
+      r.__fillErr = rep.error || '题目已变化';
       ui.setWarn(index, rep.error || '题目已变化');
       ui.toast('题目已变化，已跳过填涂，请点「识别本页」重新来一次');
       return false;
@@ -871,18 +921,23 @@
     if (rep && rep.ok) flashAnswer(state.results.get(index));
     trace({ step: "fillrep", ok: rep && rep.ok, detail: rep && rep.detail, sel: rep && rep.selected, skipped: rep && rep.skipped, err: (rep && rep.error) || (res && res.error) || null });
     if (rep && rep.skipped) {
+      r.__fillState = 'skipped';
       ui.setState(index, '已有作答', 'run');
       ui.setWarn(index, '页面上已经有作答，已按设置跳过（可在设置里关闭「不覆盖已有作答」）');
       if (!silent) ui.toast('已有作答，已跳过');
       return false;
     }
     if (rep && rep.ok) {
+      r.__fillState = 'ok';
       ui.setFilled(index, true, rep.detail || '');
       ui.setState(index, '已填入', 'ok');
       if (!silent) ui.toast(rep.detail || '已填入');
       return true;
     }
-    if (!silent) ui.toast('填入失败：' + ((rep && (rep.error || rep.detail)) || (res && res.error) || '未知原因'));
+    const errMsg = (rep && (rep.error || rep.detail)) || (res && res.error) || '未知原因';
+    r.__fillState = 'fail';
+    r.__fillErr = errMsg;
+    if (!silent) ui.toast('填入失败：' + errMsg);
     return false;
   }
 

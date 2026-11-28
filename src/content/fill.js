@@ -287,12 +287,12 @@ var qxFill = (function () {
     // 只保留最近 3 次批量操作，避免长期占用
   }
 
-  const SELECTED_CLS = /(^|\s)(on|active|actived|is-active|selected|is-selected|checked|is-checked|cur|current)(\s|$)/i;
+  const SELECTED_CLS = /(?:^|\s)(?:on|active|actived|is-active|selected|is-selected|checked|is-checked|cur|current|chosen|picked|ant-radio-checked|ant-checkbox-checked|ant-radio-wrapper-checked|ant-checkbox-wrapper-checked|el-radio--checked|radio-checked|checkbox-checked)(?:\s|$)/i;
 
   function isInputVisuallyHidden(inp) {
     try {
       const st = window.getComputedStyle(inp);
-      if (st && (st.display === 'none' || st.visibility === 'hidden' || st.pointerEvents === 'none')) return true;
+      if (st && (st.display === 'none' || st.visibility === 'hidden' || st.pointerEvents === 'none' || parseFloat(st.opacity) === 0)) return true;
       const r = inp.getBoundingClientRect();
       return r.width < 2 || r.height < 2;
     } catch (e) { return false; }
@@ -383,23 +383,53 @@ var qxFill = (function () {
   function refreshOptionEls(q) {
     const opts = q.refs.options || [];
     if (!opts.length) return opts;
+    // 元素与原生 input 都仍在文档树里时直接复用，避免重查错位
+    if (opts.every(o => o && o.el && o.el.isConnected && (!o.input || o.input.isConnected))) {
+      return opts;
+    }
     const container = q.refs.container;
+    if (!container || !container.isConnected) return opts;
+
+    // 原生 input 选项重绘：同时刷新 input 与外层选项元素
+    if (opts.some(o => o.input)) {
+      let liveInputs = [];
+      try { liveInputs = Array.from(container.querySelectorAll('input[type=radio],input[type=checkbox]')); } catch (e) { }
+      if (liveInputs.length === opts.length) {
+        return opts.map((o, i) => {
+          const inp = liveInputs[i];
+          const el = (inp.closest && inp.closest('label')) || (o.el && o.el.isConnected ? o.el : inp.parentElement) || inp;
+          return Object.assign({}, o, { input: inp, el });
+        });
+      }
+    }
+
     const first = opts[0] && opts[0].el;
-    if (!container || !first) return opts;
+    if (!first) return opts;
+
+    const bindLiveInput = (o, el) => {
+      if (!el) return o.input && o.input.isConnected ? o.input : null;
+      if (el.tagName === 'INPUT') return el;
+      let inp = null;
+      try { inp = el.querySelector('input[type=radio],input[type=checkbox]'); } catch (e) { }
+      return inp || (o.input && o.input.isConnected ? o.input : null);
+    };
 
     const tag = first.tagName;
     let all = [];
     try { all = Array.from(container.querySelectorAll(tag)); } catch (e) { return opts; }
-    // 优先按归一化选项文本匹配（兼容有/无 A.B. 前缀），其次按 A-H 前缀过滤
+    // 优先按归一化选项文本匹配（取最内层叶子节点，避开外层包裹容器），其次按 A-H 前缀过滤
     const byText = opts.map(o => {
       const want = U.norm(o.text || '');
-      return all.find(e => {
+      if (!want) return null;
+      const hits = all.filter(e => {
         const t = U.norm(e.innerText || e.textContent || '');
-        return want && (t === want || t.endsWith(want) || (o.label && new RegExp('^' + o.label + '(\\s|\\n|\\.|、)').test(t)));
+        return t === want || t.endsWith(want) || (o.label && new RegExp('^' + o.label + '(\\s|\\n|\\.|、)').test(t));
       });
+      if (!hits.length) return null;
+      return hits.find(e => !hits.some(other => other !== e && e.contains(other))) || hits[hits.length - 1];
     });
     if (byText.every(Boolean)) {
-      return opts.map((o, i) => Object.assign({}, o, { el: byText[i] }));
+      return opts.map((o, i) => Object.assign({}, o, { el: byText[i], input: bindLiveInput(o, byText[i]) }));
     }
 
     const filtered = all.filter(e => {
@@ -407,8 +437,7 @@ var qxFill = (function () {
       return /^[A-H](\s|\n|\.|、|,|，|：|:)/.test(t) || /^[A-H]$/.test(t);
     });
     if (filtered.length !== opts.length) return opts;   // 数量对不上就保守不动
-    if (filtered.some((e, i) => e === opts[i].el)) { /* 引用还新鲜 */ }
-    return opts.map((o, i) => Object.assign({}, o, { el: filtered[i] }));
+    return opts.map((o, i) => Object.assign({}, o, { el: filtered[i], input: bindLiveInput(o, filtered[i]) }));
   }
 
   function isOptionOn(o) {

@@ -172,7 +172,7 @@ function parseExtraHeaders(raw) {
   }
 }
 
-async function streamChat({ settings, messages, jsonMode, onDelta, signal }) {
+async function streamChat({ settings, messages, jsonMode, stream, onDelta, signal }) {
   const url = normalizeEndpoint(settings.baseUrl);
   const headers = Object.assign(
     { 'Content-Type': 'application/json' },
@@ -184,7 +184,7 @@ async function streamChat({ settings, messages, jsonMode, onDelta, signal }) {
     messages: messages.map(m => ({ role: m.role, content: m.content })),
     temperature: Number(settings.temperature) || 0.2,
     max_tokens: Number(settings.maxTokens) || 2048,
-    stream: true
+    stream: stream !== false
   };
   if (jsonMode) body.response_format = { type: 'json_object' };
 
@@ -233,6 +233,8 @@ async function streamChat({ settings, messages, jsonMode, onDelta, signal }) {
   const dec = new TextDecoder('utf-8');
   let buf = '';
   let full = '';
+  let thinkAcc = '';
+  let finishReason = '';
   try {
     for (; ;) {
       const { value, done } = await reader.read();
@@ -247,10 +249,21 @@ async function streamChat({ settings, messages, jsonMode, onDelta, signal }) {
         if (payload === '[DONE]') continue;
         let json;
         try { json = JSON.parse(payload); } catch (e) { continue; }
-        const delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
+        if (json.error) {
+          const msg = (json.error && (json.error.message || json.error.msg)) || JSON.stringify(json.error);
+          throw new Error('接口流式错误：' + String(msg).slice(0, 240));
+        }
+        const ch = json.choices && json.choices[0];
+        if (ch && ch.finish_reason) finishReason = ch.finish_reason;
+        const delta = ch && ch.delta && ch.delta.content;
+        const rDelta = ch && ch.delta && (ch.delta.reasoning_content || ch.delta.reasoning);
+        if (rDelta) {
+          thinkAcc += rDelta;
+          if (!full && onDelta) onDelta('');
+        }
         if (delta) { full += delta; onDelta && onDelta(delta); }
-        else if (json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content) {
-          full = json.choices[0].message.content;
+        else if (ch && ch.message && ch.message.content) {
+          full = ch.message.content;
           onDelta && onDelta(full);
         }
       }
@@ -258,6 +271,12 @@ async function streamChat({ settings, messages, jsonMode, onDelta, signal }) {
   } finally {
     clearTimeout(timer);
     try { reader.releaseLock(); } catch (e) { }
+  }
+  if (!String(full || '').trim()) {
+    if (finishReason === 'length' && thinkAcc) {
+      throw new Error('模型思考内容过长达到 max_tokens 上限，未输出最终答案');
+    }
+    throw new Error('模型没有返回内容');
   }
   return full;
 }
@@ -1375,7 +1394,21 @@ async function solveOne({ q, settings, emit }) {
     emit({ type: "thinking", text: think || acc.slice(-1200) });
   };
 
-  const raw = await streamChat({ settings, messages, jsonMode: true, onDelta });
+  let raw = '';
+  try {
+    raw = await streamChat({ settings, messages, jsonMode: true, onDelta });
+  } catch (e) {
+    const em = String((e && e.message) || e);
+    if (/没有返回内容|返回为空|max_tokens/.test(em)) {
+      acc = '';
+      const bumpTokens = /max_tokens/.test(em)
+        ? Object.assign({}, settings, { maxTokens: Math.max(4096, Number(settings.maxTokens) || 2048) })
+        : settings;
+      raw = await streamChat({ settings: bumpTokens, messages, jsonMode: false, stream: false, onDelta });
+    } else {
+      throw e;
+    }
+  }
   let result = normalizeResult(raw, q);
 
   if (settings.doubleCheck) {
